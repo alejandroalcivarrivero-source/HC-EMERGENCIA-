@@ -15,6 +15,9 @@ router.get('/estados', validarToken, atencionEmergenciaController.getAtencionEst
 // Ruta para obtener una atención de emergencia por ID de admisión
 router.get('/admision/:admisionId', validarToken, atencionEmergenciaController.getAtencionEmergenciaByAdmision);
 
+// Ruta para obtener una atención de emergencia por ID
+router.get('/:id', validarToken, atencionEmergenciaController.getAtencionEmergenciaById);
+
 // Ruta para actualizar una atención de emergencia por ID
 router.put('/:id', validarToken, atencionEmergenciaController.updateAtencionEmergencia);
 

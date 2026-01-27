@@ -50,6 +50,12 @@ const Usuario = sequelize.define('Usuario', {
   activo: {
     type: DataTypes.BOOLEAN,
     defaultValue: false
+  },
+  metodo_firma: {
+    type: DataTypes.ENUM('ARCHIVO', 'TOKEN'),
+    defaultValue: 'ARCHIVO',
+    allowNull: false,
+    comment: 'Método de firma electrónica: ARCHIVO (.p12) o TOKEN (USB físico)'
   }
 }, {
   tableName: 'USUARIOS_SISTEMA', // Nuevo nombre de la tabla en mayúsculas

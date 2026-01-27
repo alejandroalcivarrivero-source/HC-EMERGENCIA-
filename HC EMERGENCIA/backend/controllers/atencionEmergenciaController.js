@@ -148,7 +148,7 @@ exports.getAtencionEmergenciaByAdmision = async (req, res) => {
             attributes: ['nombre'] // Incluir el nombre real del estado del paciente
           }]
         },
-        { model: Usuario, as: 'Usuario', attributes: ['nombres', 'apellidos', 'rol_id'] }
+        { model: Usuario, as: 'Usuario', attributes: ['nombres', 'apellidos', 'cedula', 'rol_id'] }
       ]
     });
 
@@ -208,6 +208,56 @@ exports.getAtencionEmergenciaByAdmision = async (req, res) => {
     res.status(200).json(finalAtencion); // Enviar finalAtencion en lugar de parsedAtencion
   } catch (error) {
     console.error('Error al obtener la atención de emergencia:', error);
+    res.status(500).json({ message: 'Error al obtener la atención de emergencia.', error: error.message });
+  }
+};
+
+exports.getAtencionEmergenciaById = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const atencionEmergencia = await AtencionEmergencia.findByPk(id, {
+      include: [
+        { 
+          model: Paciente, 
+          as: 'Paciente', 
+          attributes: ['id', 'primer_nombre', 'segundo_nombre', 'primer_apellido', 'segundo_apellido', 'numero_identificacion', 'fecha_nacimiento', 'sexo'] 
+        },
+        {
+          model: Admision,
+          as: 'AdmisionAtencion',
+          attributes: ['id', 'fecha_hora_admision']
+        },
+        { 
+          model: Usuario, 
+          as: 'Usuario', 
+          attributes: ['id', 'nombres', 'apellidos', 'cedula', 'rol_id'] 
+        }
+      ]
+    });
+
+    if (!atencionEmergencia) {
+      return res.status(404).json({ message: 'Atención de emergencia no encontrada.' });
+    }
+
+    // Parsear los campos JSON antes de enviar la respuesta
+    const parsedAtencion = atencionEmergencia.toJSON();
+
+    const finalAtencion = {
+      ...parsedAtencion,
+      tipoAccidenteViolenciaIntoxicacion: parsedAtencion.tipoAccidenteViolenciaIntoxicacion ? JSON.parse(parsedAtencion.tipoAccidenteViolenciaIntoxicacion) : null,
+      antecedentesPatologicos: parsedAtencion.antecedentesPatologicos ? JSON.parse(parsedAtencion.antecedentesPatologicos) : null,
+      examenFisico: parsedAtencion.examenFisico ? JSON.parse(parsedAtencion.examenFisico) : null,
+      embarazoParto: parsedAtencion.embarazoParto ? JSON.parse(parsedAtencion.embarazoParto) : null,
+      examenesComplementarios: parsedAtencion.examenesComplementarios ? JSON.parse(parsedAtencion.examenesComplementarios) : null,
+      diagnosticosPresuntivos: parsedAtencion.diagnosticosPresuntivos ? JSON.parse(parsedAtencion.diagnosticosPresuntivos) : null,
+      diagnosticosDefinitivos: parsedAtencion.diagnosticosDefinitivos ? JSON.parse(parsedAtencion.diagnosticosDefinitivos) : null,
+      planTratamiento: parsedAtencion.planTratamiento ? JSON.parse(parsedAtencion.planTratamiento) : null
+    };
+
+    res.status(200).json(finalAtencion);
+  } catch (error) {
+    console.error('Error al obtener la atención de emergencia por ID:', error);
     res.status(500).json({ message: 'Error al obtener la atención de emergencia.', error: error.message });
   }
 };

@@ -1750,6 +1750,65 @@ exports.obtenerAdmisionPorId = async (req, res) => {
   }
 };
 
+// Obtener método de firma del usuario actual
+exports.obtenerMetodoFirma = async (req, res) => {
+  try {
+    const usuarioId = req.userId; // Del middleware validarToken
+    
+    const usuario = await Usuario.findByPk(usuarioId, {
+      attributes: ['id', 'cedula', 'nombres', 'apellidos', 'metodo_firma']
+    });
+
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    }
+
+    res.json({
+      metodoFirma: usuario.metodo_firma || 'ARCHIVO',
+      usuario: {
+        id: usuario.id,
+        cedula: usuario.cedula,
+        nombres: usuario.nombres,
+        apellidos: usuario.apellidos
+      }
+    });
+  } catch (error) {
+    console.error('Error al obtener método de firma:', error);
+    res.status(500).json({ message: 'Error al obtener método de firma.', error: error.message });
+  }
+};
+
+// Actualizar método de firma del usuario actual
+exports.actualizarMetodoFirma = async (req, res) => {
+  try {
+    const usuarioId = req.userId; // Del middleware validarToken
+    const { metodoFirma } = req.body;
+
+    // Validar método
+    if (!['ARCHIVO', 'TOKEN'].includes(metodoFirma)) {
+      return res.status(400).json({ 
+        message: 'Método de firma inválido. Debe ser ARCHIVO o TOKEN.' 
+      });
+    }
+
+    const usuario = await Usuario.findByPk(usuarioId);
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    }
+
+    usuario.metodo_firma = metodoFirma;
+    await usuario.save();
+
+    res.json({
+      message: 'Método de firma actualizado exitosamente.',
+      metodoFirma: usuario.metodo_firma
+    });
+  } catch (error) {
+    console.error('Error al actualizar método de firma:', error);
+    res.status(500).json({ message: 'Error al actualizar método de firma.', error: error.message });
+  }
+};
+
 // Función para actualizar el estado de un paciente
 exports.actualizarEstadoPaciente = async (req, res) => {
   const { admisionId } = req.params;

@@ -5,6 +5,8 @@ const Admision = require('../models/admisiones');
 const Usuario = require('../models/usuario');
 const fs = require('fs').promises;
 const path = require('path');
+const { prepararDocumentoParaToken } = require('../services/xadesService');
+const tokenFirmaService = require('../services/tokenFirmaService');
 
 // Nota: Se requiere instalar las siguientes dependencias:
 // npm install pdfkit pdf-lib node-forge
@@ -12,28 +14,17 @@ const path = require('path');
 
 /**
  * Validar que una atención puede ser firmada
- * Debe tener al menos un diagnóstico DEFINITIVO (excepto códigos Z)
+ * Usa el servicio de validación pre-firma que valida Anamnesis y Diagnósticos
  */
 async function validarPuedeFirmar(atencionId) {
-  const diagnosticos = await DetalleDiagnosticos.findAll({
-    where: { atencionEmergenciaId: atencionId }
-  });
-
-  if (diagnosticos.length === 0) {
-    return { puedeFirmar: false, motivo: 'No hay diagnósticos registrados.' };
-  }
-
-  // Verificar si hay al menos un diagnóstico DEFINITIVO o código Z con NO APLICA
-  const tieneDefinitivo = diagnosticos.some(d => {
-    const esCodigoZ = d.codigoCIE10.toUpperCase().startsWith('Z');
-    return d.tipoDiagnostico === 'DEFINITIVO' || (esCodigoZ && d.tipoDiagnostico === 'NO APLICA');
-  });
-
-  if (!tieneDefinitivo) {
-    return { puedeFirmar: false, motivo: 'Debe existir al menos un diagnóstico DEFINITIVO (excepto códigos Z).' };
-  }
-
-  return { puedeFirmar: true };
+  const { validarPreFirmaFormulario008 } = require('../services/validacionPreFirmaService');
+  const validacion = await validarPreFirmaFormulario008(atencionId);
+  
+  return {
+    puedeFirmar: validacion.puedeFirmar,
+    motivo: validacion.motivo,
+    errores: validacion.errores
+  };
 }
 
 /**
@@ -132,11 +123,54 @@ async function generarPDFFormulario008(atencionId) {
       doc.fontSize(12).text('PLAN DE TRATAMIENTO', { underline: true });
       doc.fontSize(10);
       const plan = JSON.parse(atencion.planTratamiento);
+      
       plan.forEach((item, index) => {
-        doc.text(`${index + 1}. ${item.medicamento || 'N/A'}`);
-        doc.text(`   Vía: ${item.via || 'N/A'}, Dosis: ${item.dosis || 'N/A'}, Posología: ${item.posologia || 'N/A'}, Días: ${item.dias || 'N/A'}`);
+        // Compatibilidad: si es formato antiguo (sin tipo)
+        if (!item.tipo || item.tipo === 'medicamento' || (item.medicamento && !item.tipo)) {
+          // Formato antiguo o medicamento
+          const nombre = item.nombre || item.nombreGenerico || item.medicamento || 'N/A';
+          const concentracion = item.concentracion || '';
+          const forma = item.formaFarmaceutica || '';
+          const dosis = item.dosis || 'N/A';
+          const frecuencia = item.frecuencia || item.posologia || 'N/A';
+          const via = item.viaAdministracion || item.via || 'N/A';
+          const duracion = item.duracion ? `${item.duracion} ${item.duracionUnidad || 'días'}` : (item.dias ? `${item.dias} días` : 'N/A');
+          
+          doc.text(`${index + 1}. ${nombre} ${concentracion} ${forma}`);
+          doc.text(`   Dosis: ${dosis} - Frecuencia: ${frecuencia} - Vía: ${via} - Duración: ${duracion}`);
+          if (item.indicaciones) {
+            doc.text(`   Indicaciones: ${item.indicaciones}`);
+          }
+        } else if (item.tipo === 'procedimiento_lab') {
+          // Procedimiento de laboratorio
+          const nombreProc = item.nombreProcedimiento || item.tipoProcedimiento || 'N/A';
+          doc.text(`${index + 1}. [LABORATORIO] ${nombreProc}`);
+          if (item.observaciones) {
+            doc.text(`   Observaciones: ${item.observaciones}`);
+          }
+          if (item.requiereOrden) {
+            doc.text(`   ⚠ Requiere Orden de Laboratorio (Formulario 010)`);
+          }
+        } else if (item.tipo === 'procedimiento_imagen') {
+          // Procedimiento de imagenología
+          const nombreProc = item.nombreProcedimiento || item.tipoProcedimiento || 'N/A';
+          doc.text(`${index + 1}. [IMAGENOLOGÍA] ${nombreProc}`);
+          if (item.observaciones) {
+            doc.text(`   Observaciones: ${item.observaciones}`);
+          }
+          if (item.requiereOrden) {
+            doc.text(`   ⚠ Requiere Orden de Imagenología (Formulario 012)`);
+          }
+        }
         doc.moveDown(0.5);
       });
+      
+      // Observaciones adicionales
+      if (atencion.observacionesPlanTratamiento) {
+        doc.moveDown(0.5);
+        doc.fontSize(10).font('Helvetica-Bold').text('Observaciones Adicionales:', { continued: false });
+        doc.font('Helvetica').text(atencion.observacionesPlanTratamiento);
+      }
     }
 
     // Profesional responsable
@@ -209,7 +243,156 @@ async function firmarPDF(pdfBuffer, certificadoP12, password) {
 }
 
 /**
- * Endpoint para firmar una atención
+ * Endpoint para preparar documento a firmar (para token USB)
+ * Genera el digest XAdES y prepara la solicitud para el agente externo
+ */
+exports.prepararDocumentoFirma = async (req, res) => {
+  try {
+    const { atencionId } = req.params;
+    const usuarioId = req.userId; // Del middleware validarToken
+
+    // Validar que puede ser firmada
+    const validacion = await validarPuedeFirmar(atencionId);
+    if (!validacion.puedeFirmar) {
+      return res.status(400).json({ 
+        message: validacion.motivo || 'La atención no cumple los requisitos para ser firmada',
+        errores: validacion.errores || []
+      });
+    }
+
+    // Verificar que la atención existe y está pendiente
+    const atencion = await AtencionEmergencia.findByPk(atencionId);
+    if (!atencion) {
+      return res.status(404).json({ message: 'Atención no encontrada.' });
+    }
+
+    if (atencion.estadoFirma === 'FIRMADO') {
+      return res.status(400).json({ message: 'Esta atención ya ha sido firmada.' });
+    }
+
+    // Obtener datos del usuario
+    const usuario = await Usuario.findByPk(usuarioId);
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    }
+
+    // Generar PDF
+    const pdfBuffer = await generarPDFFormulario008(atencionId);
+
+    // Preparar documento para firma con token
+    const documentoPreparado = prepararDocumentoParaToken(pdfBuffer, atencionId, usuario);
+
+    // Crear solicitud de firma pendiente
+    const solicitudToken = tokenFirmaService.crearSolicitudFirma(documentoPreparado.documentoId, documentoPreparado);
+
+    // Retornar datos para el agente externo
+    res.json({
+      solicitudToken,
+      documentoPreparado: {
+        documentoId: documentoPreparado.documentoId,
+        digest: documentoPreparado.digest,
+        digestBase64: documentoPreparado.digestBase64,
+        algoritmo: documentoPreparado.algoritmo,
+        metadatos: documentoPreparado.metadatos,
+        protocolo: documentoPreparado.protocolo,
+        callbackUrl: documentoPreparado.callbackUrl
+      },
+      instrucciones: {
+        metodo: 'TOKEN',
+        mensaje: 'Conecte su token USB y use el agente de firma para completar la firma.',
+        protocolo: 'firmaec://',
+        agenteRequerido: true
+      }
+    });
+  } catch (error) {
+    console.error('Error al preparar documento para firma:', error);
+    res.status(500).json({ message: 'Error al preparar documento para firma.', error: error.message });
+  }
+};
+
+/**
+ * Endpoint callback para recibir la firma del agente externo (token USB)
+ */
+exports.callbackFirmaToken = async (req, res) => {
+  try {
+    const { atencionId } = req.params;
+    const { solicitudToken, firmaBase64, certificadoInfo } = req.body;
+
+    if (!solicitudToken || !firmaBase64) {
+      return res.status(400).json({ 
+        message: 'Faltan datos requeridos: solicitudToken y firmaBase64' 
+      });
+    }
+
+    // Obtener solicitud
+    const solicitud = tokenFirmaService.obtenerSolicitud(solicitudToken);
+    if (!solicitud) {
+      return res.status(404).json({ 
+        message: 'Solicitud no encontrada o expirada' 
+      });
+    }
+
+    // Verificar que la solicitud corresponde a esta atención
+    if (solicitud.datosDocumento.atencionId !== parseInt(atencionId)) {
+      return res.status(400).json({ 
+        message: 'La solicitud no corresponde a esta atención' 
+      });
+    }
+
+    // Completar solicitud
+    tokenFirmaService.completarSolicitudFirma(solicitudToken, firmaBase64, certificadoInfo);
+
+    // Obtener el PDF original
+    const pdfBuffer = await generarPDFFormulario008(atencionId);
+
+    // TODO: Aplicar la firma al PDF usando la firmaBase64 recibida
+    // Por ahora, marcamos como firmado (en producción, aplicar firma real)
+    const atencion = await AtencionEmergencia.findByPk(atencionId);
+    await atencion.update({
+      estadoFirma: 'FIRMADO'
+    });
+
+    // Retornar PDF firmado (en producción, aplicar firma real)
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="formulario_008_${atencionId}_firmado.pdf"`);
+    res.send(pdfBuffer);
+  } catch (error) {
+    console.error('Error en callback de firma token:', error);
+    res.status(500).json({ message: 'Error al procesar firma del token.', error: error.message });
+  }
+};
+
+/**
+ * Endpoint para verificar estado de solicitud de firma
+ */
+exports.verificarEstadoFirma = async (req, res) => {
+  try {
+    const { solicitudToken } = req.params;
+
+    const solicitud = tokenFirmaService.obtenerSolicitud(solicitudToken);
+    
+    if (!solicitud) {
+      return res.status(404).json({ 
+        message: 'Solicitud no encontrada o expirada',
+        estado: 'NO_ENCONTRADA'
+      });
+    }
+
+    res.json({
+      estado: solicitud.estado,
+      fechaCreacion: solicitud.fechaCreacion,
+      fechaExpiracion: solicitud.fechaExpiracion,
+      completada: solicitud.estado === 'COMPLETADA',
+      tieneFirma: !!solicitud.firmaBase64
+    });
+  } catch (error) {
+    console.error('Error al verificar estado de firma:', error);
+    res.status(500).json({ message: 'Error al verificar estado.', error: error.message });
+  }
+};
+
+/**
+ * Endpoint para firmar una atención (método ARCHIVO .p12)
  */
 exports.firmarAtencion = async (req, res) => {
   try {
@@ -220,10 +403,13 @@ exports.firmarAtencion = async (req, res) => {
       return res.status(400).json({ message: 'Debe proporcionar el archivo .p12 del certificado.' });
     }
 
-    // Validar que puede ser firmada
+    // Validar que puede ser firmada (incluye validación de Anamnesis y Diagnósticos)
     const validacion = await validarPuedeFirmar(atencionId);
     if (!validacion.puedeFirmar) {
-      return res.status(400).json({ message: validacion.motivo });
+      return res.status(400).json({ 
+        message: validacion.motivo || 'La atención no cumple los requisitos para ser firmada',
+        errores: validacion.errores || []
+      });
     }
 
     // Verificar que la atención existe y está pendiente

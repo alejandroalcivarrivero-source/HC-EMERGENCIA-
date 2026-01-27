@@ -148,26 +148,25 @@ exports.eliminarDiagnostico = async (req, res) => {
 
 /**
  * Validar si una atención puede ser firmada
- * Debe tener al menos un diagnóstico DEFINITIVO (excepto códigos Z)
+ * Valida bloques obligatorios: Anamnesis y Diagnósticos CIE-10
  */
 exports.validarFirma = async (req, res) => {
   try {
     const { atencionId } = req.params;
 
-    const diagnosticos = await DetalleDiagnosticos.findAll({
-      where: { atencionEmergenciaId: atencionId }
-    });
-
-    // Verificar si hay al menos un diagnóstico DEFINITIVO
-    const tieneDefinitivo = diagnosticos.some(d => {
-      const esCodigoZ = d.codigoCIE10.toUpperCase().startsWith('Z');
-      return d.tipoDiagnostico === 'DEFINITIVO' || (esCodigoZ && d.tipoDiagnostico === 'NO APLICA');
-    });
+    // Usar el servicio de validación pre-firma
+    const { validarPreFirmaFormulario008 } = require('../services/validacionPreFirmaService');
+    const validacion = await validarPreFirmaFormulario008(atencionId);
 
     res.status(200).json({
-      puedeFirmar: tieneDefinitivo || diagnosticos.length === 0,
-      tieneDefinitivo,
-      totalDiagnosticos: diagnosticos.length
+      puedeFirmar: validacion.puedeFirmar,
+      motivo: validacion.motivo,
+      errores: validacion.errores,
+      erroresCriticos: validacion.erroresCriticos,
+      detalles: validacion.detalles,
+      // Mantener compatibilidad con código anterior
+      tieneDefinitivo: validacion.detalles.diagnosticos?.tieneDefinitivo || false,
+      totalDiagnosticos: validacion.detalles.diagnosticos?.totalDiagnosticos || 0
     });
   } catch (error) {
     console.error('Error al validar firma:', error);

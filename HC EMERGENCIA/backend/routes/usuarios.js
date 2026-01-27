@@ -92,4 +92,8 @@ router.delete('/pacientes/:id', usuariosController.eliminarPaciente);
 // Ruta para cambiar contraseña de usuario logueado
 router.post('/cambiar-contrasena', validarToken, authController.cambiarContrasena); // Nueva ruta
 
+// Rutas para método de firma electrónica
+router.get('/metodo-firma', validarToken, usuariosController.obtenerMetodoFirma);
+router.put('/metodo-firma', validarToken, usuariosController.actualizarMetodoFirma);
+
 module.exports = router;

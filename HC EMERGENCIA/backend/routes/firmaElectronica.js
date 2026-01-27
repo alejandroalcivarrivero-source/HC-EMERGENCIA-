@@ -22,11 +22,29 @@ const upload = multer({
   }
 });
 
-// Firmar atención (requiere archivo .p12 y contraseña)
+// Firmar atención con archivo .p12 (método ARCHIVO)
 router.post('/firmar/:atencionId', 
   validarToken, 
   upload.single('certificado'),
   firmaElectronicaController.firmarAtencion
+);
+
+// Preparar documento para firma con token USB (método TOKEN)
+router.post('/preparar/:atencionId', 
+  validarToken,
+  firmaElectronicaController.prepararDocumentoFirma
+);
+
+// Callback para recibir firma del agente externo (token USB)
+router.post('/token/callback/:atencionId',
+  validarToken,
+  firmaElectronicaController.callbackFirmaToken
+);
+
+// Verificar estado de solicitud de firma
+router.get('/token/estado/:solicitudToken',
+  validarToken,
+  firmaElectronicaController.verificarEstadoFirma
 );
 
 // Obtener PDF preview del formulario
