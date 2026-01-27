@@ -9,6 +9,40 @@ const CatEstadoPaciente = require('../models/cat_estado_paciente'); // Importar 
 const CatTriaje = require('../models/cat_triaje'); // Importar el modelo CatTriaje
 const { createOrUpdateAtencionPacienteEstado } = require('./atencionPacienteEstadoController'); // Importar la función
 
+// --- Helpers Sección D (Accidente/Violencia/Intoxicación) ---
+function normalizarTipoD(tipo) {
+  const def = {
+    seleccion: [],
+    transito: { consumoSustancias: '', proteccion: { casco: false, cinturon: false } }
+  };
+  if (Array.isArray(tipo)) return { ...def, seleccion: tipo };
+  if (tipo && typeof tipo === 'object') {
+    const t = tipo;
+    return {
+      ...def,
+      ...t,
+      seleccion: Array.isArray(t.seleccion) ? t.seleccion : [],
+      transito: {
+        ...def.transito,
+        ...(t.transito || {}),
+        proteccion: {
+          ...def.transito.proteccion,
+          ...(((t.transito || {}).proteccion) || {})
+        }
+      }
+    };
+  }
+  return def;
+}
+
+function detectarViolencia(tipoNorm) {
+  const sel = Array.isArray(tipoNorm?.seleccion) ? tipoNorm.seleccion : [];
+  return sel.some(v => {
+    const s = String(v || '').toUpperCase();
+    return s.startsWith('VIOLENCIA_') || s.includes('VIOLENCIA');
+  });
+}
+
 exports.createAtencionEmergencia = async (req, res) => {
   console.log('[createAtencionEmergencia] Recibiendo solicitud para crear atención de emergencia. Body:', req.body);
   const {
@@ -75,6 +109,11 @@ exports.createAtencionEmergencia = async (req, res) => {
       }
     }
 
+    // Persistir Sección D normalizada y con flag de violencia embebido (sin cambios de BD)
+    const tipoDNorm = normalizarTipoD(tipoAccidenteViolenciaIntoxicacion);
+    const violenciaDetectada = detectarViolencia(tipoDNorm);
+    const tipoDToStore = { ...tipoDNorm, atencionViolencia: violenciaDetectada, requiereNotificacion094: violenciaDetectada };
+
     const atencionEmergencia = await AtencionEmergencia.create({
       pacienteId,
       admisionId,
@@ -90,7 +129,7 @@ exports.createAtencionEmergencia = async (req, res) => {
       direccionEvento,
       custodiaPolicial,
       notificacion,
-      tipoAccidenteViolenciaIntoxicacion: JSON.stringify(tipoAccidenteViolenciaIntoxicacion),
+      tipoAccidenteViolenciaIntoxicacion: JSON.stringify(tipoDToStore),
       observacionesAccidente,
       sugestivoAlientoAlcoholico,
       antecedentesPatologicos: JSON.stringify(antecedentesPatologicos),
@@ -380,6 +419,14 @@ exports.updateAtencionEmergencia = async (req, res) => {
       }
     }
 
+    // Si se actualiza Sección D, normalizar y embedir flag de violencia para alertas administrativas (Previsión 094)
+    let tipoDToStoreStr = null;
+    if (tipoAccidenteViolenciaIntoxicacion !== undefined) {
+      const tipoDNorm = normalizarTipoD(tipoAccidenteViolenciaIntoxicacion);
+      const violenciaDetectada = detectarViolencia(tipoDNorm);
+      tipoDToStoreStr = JSON.stringify({ ...tipoDNorm, atencionViolencia: violenciaDetectada, requiereNotificacion094: violenciaDetectada });
+    }
+
     // Actualizar solo los campos que se proporcionan en el body
     atencionEmergencia.fechaAtencion = fechaAtencion || atencionEmergencia.fechaAtencion;
     atencionEmergencia.horaAtencion = horaAtencion || atencionEmergencia.horaAtencion;
@@ -391,7 +438,7 @@ exports.updateAtencionEmergencia = async (req, res) => {
     atencionEmergencia.direccionEvento = direccionEvento !== undefined ? direccionEvento : atencionEmergencia.direccionEvento;
     atencionEmergencia.custodiaPolicial = custodiaPolicial !== undefined ? custodiaPolicial : atencionEmergencia.custodiaPolicial;
     atencionEmergencia.notificacion = notificacion !== undefined ? notificacion : atencionEmergencia.notificacion;
-    atencionEmergencia.tipoAccidenteViolenciaIntoxicacion = tipoAccidenteViolenciaIntoxicacion !== undefined ? JSON.stringify(tipoAccidenteViolenciaIntoxicacion) : atencionEmergencia.tipoAccidenteViolenciaIntoxicacion;
+    atencionEmergencia.tipoAccidenteViolenciaIntoxicacion = tipoAccidenteViolenciaIntoxicacion !== undefined ? tipoDToStoreStr : atencionEmergencia.tipoAccidenteViolenciaIntoxicacion;
     atencionEmergencia.observacionesAccidente = observacionesAccidente !== undefined ? observacionesAccidente : atencionEmergencia.observacionesAccidente;
     atencionEmergencia.sugestivoAlientoAlcoholico = sugestivoAlientoAlcoholico !== undefined ? sugestivoAlientoAlcoholico : atencionEmergencia.sugestivoAlientoAlcoholico;
     atencionEmergencia.antecedentesPatologicos = antecedentesPatologicos !== undefined ? JSON.stringify(antecedentesPatologicos) : atencionEmergencia.antecedentesPatologicos;

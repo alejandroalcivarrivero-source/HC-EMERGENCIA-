@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import Header from '../components/Header';
 import { mainLinksMedico, quickAccessLinks } from '../components/Header';
-import { FileText, Clock, User, Users, PenLine } from 'lucide-react';
+import { FileText, Clock, User, Users, PenLine, ShieldAlert } from 'lucide-react';
 import { format } from 'date-fns';
 
 export default function Dashboard() {
@@ -171,6 +171,12 @@ export default function Dashboard() {
                                 {enCurso && (
                                   <span className="px-2.5 py-0.5 bg-blue-50 text-blue-700 text-xs font-semibold rounded-full">
                                     En curso
+                                  </span>
+                                )}
+                                {(atencion.alertaNotificacion094 || atencion.requiereNotificacion094) && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 border border-amber-200 text-amber-800 rounded text-xs font-medium">
+                                    <ShieldAlert className="w-3 h-3 text-amber-600" />
+                                    Previsión 094
                                   </span>
                                 )}
                                 <span className="text-sm text-gray-500">CI: {paciente.numero_identificacion}</span>

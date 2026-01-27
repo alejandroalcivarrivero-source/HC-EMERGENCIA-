@@ -6,7 +6,50 @@ import RecetaMedicaForm from './RecetaMedicaForm'; // Importar el componente de 
 import OrdenExamenForm from './OrdenExamenForm'; // Importar el componente de Orden de Examen
 import OrdenImagenForm from './OrdenImagenForm'; // Importar el componente de Orden de Imagen
 
-const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData, readOnly = false }) => {
+/** Campos oficiales MSP Sección E (Antecedentes Patológicos) – orden y etiquetas */
+const CAMPOS_ANTECEDENTES = [
+  { key: 'alergicos', label: 'Alérgicos', num: 1 },
+  { key: 'clinicos', label: 'Clínicos', num: 2 },
+  { key: 'ginecologicos', label: 'Ginecológicos', num: 3 },
+  { key: 'traumaticos', label: 'Traumatológicos', num: 4 },
+  { key: 'pediatricos', label: 'Pediátricos', num: 5 },
+  { key: 'quirurgicos', label: 'Quirúrgicos', num: 6 },
+  { key: 'farmacologicos', label: 'Farmacológicos', num: 7 },
+  { key: 'habitos', label: 'Hábitos', num: 8 },
+  { key: 'familiares', label: 'Familiares', num: 9 },
+  { key: 'otros', label: 'Otros', num: 10 },
+];
+
+/** Sección D (MSP): catálogo base por categoría (valores normalizados para detección/validación) */
+const TIPOS_D = {
+  accidentes: [
+    { value: 'ACCIDENTE_TRANSITO', label: 'Accidente de Tránsito' },
+    { value: 'ACCIDENTE_CAIDA', label: 'Caída' },
+    { value: 'ACCIDENTE_LABORAL', label: 'Accidente Laboral' },
+    { value: 'ACCIDENTE_QUEMADURA', label: 'Quemadura' },
+    { value: 'ACCIDENTE_APLASTAMIENTO', label: 'Aplastamiento/Contusión' },
+    { value: 'ACCIDENTE_OTRO', label: 'Otro Accidente' },
+  ],
+  violencia: [
+    { value: 'VIOLENCIA_INTRAFAMILIAR', label: 'Violencia intrafamiliar' },
+    { value: 'VIOLENCIA_SEXUAL', label: 'Violencia sexual' },
+    { value: 'VIOLENCIA_ARMA_FUEGO', label: 'Agresión con arma de fuego' },
+    { value: 'VIOLENCIA_ARMA_BLANCA', label: 'Agresión con arma blanca / punzocortante' },
+    { value: 'VIOLENCIA_RINA', label: 'Agresión por riña' },
+    { value: 'VIOLENCIA_PSICOLOGICA', label: 'Presunta violencia psicológica' },
+    { value: 'VIOLENCIA_FISICA', label: 'Presunta violencia física' },
+  ],
+  intoxicaciones: [
+    { value: 'INTOX_ALCOHOL', label: 'Intoxicación alcohólica' },
+    { value: 'INTOX_DROGAS', label: 'Intoxicación por drogas' },
+    { value: 'INTOX_ALIMENTARIA', label: 'Intoxicación alimentaria' },
+    { value: 'INTOX_PLAGUICIDAS', label: 'Intoxicación por plaguicidas' },
+    { value: 'INTOX_INHALACION_GASES', label: 'Inhalación de gases' },
+    { value: 'INTOX_OTRA', label: 'Otra intoxicación' },
+  ],
+};
+
+const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData, readOnly = false, onAlergiasChange }) => {
   const { admisionId } = useParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -22,17 +65,24 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
     horaEvento: '',
     lugarEvento: '',
     direccionEvento: '',
-    custodiaPolicial: false,
-    notificacion: false,
-    tipoAccidenteViolenciaIntoxicacion: [],
-    observacionesAccidente: '',
-    sugestivoAlientoAlcoholico: false,
-    // SECCIÓN: ANTECEDENTES PATOLÓGICOS
-    antecedentesPatologicos: {
-      alergicos: '', clinicos: '', ginecologicos: '', traumaticos: '',
-      pediatricos: '', quirurgicos: '', farmacologicos: '', habitos: '',
-      familiares: '', otros: ''
+    custodiaPolicial: null,
+    notificacion: null,
+    // Puede ser array legacy o un objeto (nuevo). Se normaliza al cargar.
+    tipoAccidenteViolenciaIntoxicacion: {
+      seleccion: [],
+      transito: {
+        consumoSustancias: '', // 'SI' | 'NO' | 'NO_CONSTA' | ''
+        proteccion: { casco: false, cinturon: false }
+      }
     },
+    observacionesAccidente: '',
+    sugestivoAlientoAlcoholico: null,
+    // SECCIÓN: ANTECEDENTES PATOLÓGICOS (E – MSP: 10 campos + No aplica)
+    antecedentesPatologicos: (() => {
+      const keys = { alergicos: '', clinicos: '', ginecologicos: '', traumaticos: '', pediatricos: '', quirurgicos: '', farmacologicos: '', habitos: '', familiares: '', otros: '' };
+      const noAplicaKeys = Object.keys(keys).reduce((o, k) => ({ ...o, [k]: false }), {});
+      return { ...keys, noAplicaGeneral: false, noAplica: noAplicaKeys };
+    })(),
     // SECCIÓN: PROBLEMA ACTUAL
     enfermedadProblemaActual: '',
     // SECCIÓN: EXAMEN FÍSICO
@@ -99,14 +149,39 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
       fechaInicialRef.current = atencionData.fechaAtencion || format(new Date(), 'yyyy-MM-dd');
       horaInicialRef.current = atencionData.horaAtencion || format(new Date(), 'HH:mm');
       
+      const apRaw = JSON.parse(atencionData.antecedentesPatologicos || '{}');
+      const apKeys = { alergicos: '', clinicos: '', ginecologicos: '', traumaticos: '', pediatricos: '', quirurgicos: '', farmacologicos: '', habitos: '', familiares: '', otros: '' };
+      const apNoAplicaDef = Object.keys(apKeys).reduce((o, k) => ({ ...o, [k]: false }), {});
+      const apNormalized = { ...apKeys, ...apRaw, noAplicaGeneral: apRaw.noAplicaGeneral ?? false, noAplica: { ...apNoAplicaDef, ...(apRaw.noAplica || {}) } };
+      // Normalizar Sección D: soportar formato legacy (array) y formato nuevo (objeto con seleccion/transito)
+      const tipoDef = { seleccion: [], transito: { consumoSustancias: '', proteccion: { casco: false, cinturon: false } } };
+      let tipoRaw = JSON.parse(atencionData.tipoAccidenteViolenciaIntoxicacion || '[]');
+      let tipoNormalized = tipoDef;
+      if (Array.isArray(tipoRaw)) {
+        tipoNormalized = { ...tipoDef, seleccion: tipoRaw };
+      } else if (tipoRaw && typeof tipoRaw === 'object') {
+        tipoNormalized = {
+          ...tipoDef,
+          ...tipoRaw,
+          seleccion: Array.isArray(tipoRaw.seleccion) ? tipoRaw.seleccion : [],
+          transito: {
+            ...tipoDef.transito,
+            ...(tipoRaw.transito || {}),
+            proteccion: {
+              ...tipoDef.transito.proteccion,
+              ...(((tipoRaw.transito || {}).proteccion) || {})
+            }
+          }
+        };
+      }
       setAtencionEmergenciaData(prevData => ({
         ...prevData,
         ...atencionData,
         // Respetar la fecha y hora originales (no regenerar)
         fechaAtencion: fechaInicialRef.current,
         horaAtencion: horaInicialRef.current,
-        tipoAccidenteViolenciaIntoxicacion: JSON.parse(atencionData.tipoAccidenteViolenciaIntoxicacion || '[]'),
-        antecedentesPatologicos: JSON.parse(atencionData.antecedentesPatologicos || '{}'),
+        tipoAccidenteViolenciaIntoxicacion: tipoNormalized,
+        antecedentesPatologicos: apNormalized,
         examenFisico: JSON.parse(atencionData.examenFisico || '{}'),
         embarazoParto: JSON.parse(atencionData.embarazoParto || '{}'),
         examenesComplementarios: JSON.parse(atencionData.examenesComplementarios || '[]'),
@@ -116,8 +191,8 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
       }));
       lastSavedRef.current = JSON.stringify({
         ...atencionData,
-        tipoAccidenteViolenciaIntoxicacion: JSON.parse(atencionData.tipoAccidenteViolenciaIntoxicacion || '[]'),
-        antecedentesPatologicos: JSON.parse(atencionData.antecedentesPatologicos || '{}'),
+        tipoAccidenteViolenciaIntoxicacion: tipoNormalized,
+        antecedentesPatologicos: apNormalized,
         examenFisico: JSON.parse(atencionData.examenFisico || '{}'),
         embarazoParto: JSON.parse(atencionData.embarazoParto || '{}'),
         examenesComplementarios: JSON.parse(atencionData.examenesComplementarios || '[]'),
@@ -341,6 +416,39 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
       [section]: prevData[section].filter((_, i) => i !== index)
     }));
   };
+
+  /** No aplica general para Sección E (Antecedentes) */
+  const setNoAplicaGeneralAntecedentes = (value) => {
+    setAtencionEmergenciaData(prev => ({
+      ...prev,
+      antecedentesPatologicos: { ...prev.antecedentesPatologicos, noAplicaGeneral: !!value }
+    }));
+  };
+
+  /** No aplica por campo en Sección E */
+  const setNoAplicaCampoAntecedente = (fieldKey, value) => {
+    setAtencionEmergenciaData(prev => ({
+      ...prev,
+      antecedentesPatologicos: {
+        ...prev.antecedentesPatologicos,
+        noAplica: { ...(prev.antecedentesPatologicos.noAplica || {}), [fieldKey]: !!value }
+      }
+    }));
+  };
+
+  /** Notificar al padre cambio en alergias (para alerta en header del paciente). Evita sobrescribir con [] en el primer render antes de cargar desde atencionData. */
+  const alergiasReportedOnce = useRef(false);
+  useEffect(() => {
+    if (typeof onAlergiasChange !== 'function') return;
+    const txt = (atencionEmergenciaData?.antecedentesPatologicos?.alergicos || '').trim();
+    const arr = txt ? txt.split(/[,;]/).map(a => a.trim()).filter(Boolean) : [];
+    if (!alergiasReportedOnce.current && atencionData && arr.length === 0) {
+      alergiasReportedOnce.current = true;
+      return;
+    }
+    alergiasReportedOnce.current = true;
+    onAlergiasChange(arr);
+  }, [atencionEmergenciaData?.antecedentesPatologicos?.alergicos, onAlergiasChange, atencionData]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -814,190 +922,397 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
           {/* Se elimina el bloque de Signos Vitales de las pestañas */}
 
           {activeTab === 'accidenteViolencia' && (
-            <div>
-              <h2 className="text-xl font-semibold mb-4 text-gray-800">Evento Traumático</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label htmlFor="fechaEvento" className="block text-gray-700 text-sm font-bold mb-2">Fecha del Evento:</label>
-                  <input
-                    type="date"
-                    id="fechaEvento"
-                    name="fechaEvento"
-                    value={atencionEmergenciaData.fechaEvento}
-                    onChange={handleChange}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="horaEvento" className="block text-gray-700 text-sm font-bold mb-2">Hora del Evento:</label>
-                  <input
-                    type="time"
-                    id="horaEvento"
-                    name="horaEvento"
-                    value={atencionEmergenciaData.horaEvento}
-                    onChange={handleChange}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <label htmlFor="lugarEvento" className="block text-gray-700 text-sm font-bold mb-2">Lugar del Evento:</label>
-                  <input
-                    type="text"
-                    id="lugarEvento"
-                    name="lugarEvento"
-                    value={atencionEmergenciaData.lugarEvento}
-                    onChange={handleChange}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                </div>
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 text-sm font-bold mb-2">Custodia Policial:</label>
-                <div className="flex items-center">
-                  <label className="inline-flex items-center mr-4">
-                    <input
-                      type="radio"
-                      className="form-radio"
-                      name="custodiaPolicial"
-                      value="true"
-                      checked={atencionEmergenciaData.custodiaPolicial === true}
-                      onChange={handleChange}
-                    />
-                    <span className="ml-2">Sí</span>
-                  </label>
-                  <label className="inline-flex items-center">
-                    <input
-                      type="radio"
-                      className="form-radio"
-                      name="custodiaPolicial"
-                      value="false"
-                      checked={atencionEmergenciaData.custodiaPolicial === false}
-                      onChange={handleChange}
-                    />
-                    <span className="ml-2">No</span>
-                  </label>
-                </div>
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 text-sm font-bold mb-2">Notificación:</label>
-                <div className="flex items-center">
-                  <label className="inline-flex items-center mr-4">
-                    <input
-                      type="radio"
-                      className="form-radio"
-                      name="notificacion"
-                      value="true"
-                      checked={atencionEmergenciaData.notificacion === true}
-                      onChange={handleChange}
-                    />
-                    <span className="ml-2">Sí</span>
-                  </label>
-                  <label className="inline-flex items-center">
-                    <input
-                      type="radio"
-                      className="form-radio"
-                      name="notificacion"
-                      value="false"
-                      checked={atencionEmergenciaData.notificacion === false}
-                      onChange={handleChange}
-                    />
-                    <span className="ml-2">No</span>
-                  </label>
-                </div>
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 text-sm font-bold mb-2">Tipo de Accidente, Violencia, Intoxicación:</label>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                  {[
-                    'Accidente de Tránsito', 'Caída', 'Quemadura', 'Mordedura',
-                    'Violencia por Arma de Fuego', 'Violencia por Punzocortante', 'Violencia por Riña', 'Violencia Familiar',
-                    'Presunta Violencia Física', 'Presunta Violencia Psicológica', 'Presunta Violencia Sexual', 'Ahogamiento',
-                    'Cuerpo Extraño', 'Aplastamiento', 'Otro Accidente', 'Intoxicación Alcohólica',
-                    'Intoxicación Alimentaria', 'Intoxicación por Drogas', 'Inhalación de Gases', 'Otra Intoxicación',
-                    'Picadura', 'Envenenamiento', 'Anafilaxia'
-                  ].map((type) => (
-                    <label key={type} className="inline-flex items-center">
-                      <input
-                        type="checkbox"
-                        className="form-checkbox"
-                        name="tipoAccidenteViolenciaIntoxicacion"
-                        value={type}
-                        checked={atencionEmergenciaData.tipoAccidenteViolenciaIntoxicacion.includes(type)}
-                        onChange={(e) => {
-                          const { value, checked } = e.target;
-                          setAtencionEmergenciaData(prevData => {
-                            const currentTypes = prevData.tipoAccidenteViolenciaIntoxicacion;
-                            if (checked) {
-                              return { ...prevData, tipoAccidenteViolenciaIntoxicacion: [...currentTypes, value] };
-                            } else {
-                              return { ...prevData, tipoAccidenteViolenciaIntoxicacion: currentTypes.filter(t => t !== value) };
-                            }
-                          });
-                        }}
+            <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm" style={{ fontFamily: "'Inter', 'Roboto', sans-serif" }}>
+              {(() => {
+                const d = atencionEmergenciaData.tipoAccidenteViolenciaIntoxicacion || {};
+                const seleccion = Array.isArray(d.seleccion) ? d.seleccion : [];
+                const eventoRequerido = seleccion.length > 0;
+                const hayViolencia = seleccion.some(v => String(v).startsWith('VIOLENCIA_'));
+                const esTransito = seleccion.includes('ACCIDENTE_TRANSITO');
+                const obs = String(atencionEmergenciaData.observacionesAccidente || '');
+                const obsLen = obs.trim().length;
+
+                const toggleTipo = (value) => {
+                  setAtencionEmergenciaData(prev => {
+                    const cur = prev.tipoAccidenteViolenciaIntoxicacion || {};
+                    const sel = Array.isArray(cur.seleccion) ? cur.seleccion : [];
+                    const existe = sel.includes(value);
+                    const nextSel = existe ? sel.filter(x => x !== value) : [...sel, value];
+                    const next = { ...cur, seleccion: nextSel };
+                    // Si se desmarca ACCIDENTE_TRANSITO, limpiar detalles condicionales
+                    if (existe && value === 'ACCIDENTE_TRANSITO') {
+                      next.transito = { consumoSustancias: '', proteccion: { casco: false, cinturon: false } };
+                    }
+                    return { ...prev, tipoAccidenteViolenciaIntoxicacion: next };
+                  });
+                };
+
+                const setTransito = (patch) => {
+                  setAtencionEmergenciaData(prev => {
+                    const cur = prev.tipoAccidenteViolenciaIntoxicacion || {};
+                    const base = cur.transito || {};
+                    const baseProt = (base.proteccion || {});
+                    const patchProt = (patch.proteccion || {});
+                    return {
+                      ...prev,
+                      tipoAccidenteViolenciaIntoxicacion: {
+                        ...cur,
+                        transito: {
+                          ...base,
+                          ...patch,
+                          proteccion: { ...baseProt, ...patchProt }
+                        }
+                      }
+                    };
+                  });
+                };
+
+                return (
+                  <div>
+                    <div className="flex items-baseline gap-2 mb-1">
+                      <h2 className="text-xl font-semibold text-gray-800">Accidente, Violencia, Intoxicación</h2>
+                      <span className="text-xs text-gray-500">(Sección D)</span>
+                    </div>
+                    <p className="text-sm text-gray-500 mb-5">
+                      Registro normativo MSP Ecuador y estándares de trauma. Complete el relato con precisión clínica y legal.
+                    </p>
+
+                    {/* Selección por categorías */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+                      {[
+                        { title: 'Accidentes', items: TIPOS_D.accidentes, color: 'border-sky-100 bg-sky-50/40' },
+                        { title: 'Violencia', items: TIPOS_D.violencia, color: 'border-rose-100 bg-rose-50/40' },
+                        { title: 'Intoxicaciones', items: TIPOS_D.intoxicaciones, color: 'border-amber-100 bg-amber-50/40' },
+                      ].map((cat) => (
+                        <div key={cat.title} className={`rounded-xl border p-4 ${cat.color}`}>
+                          <h3 className="text-sm font-semibold text-gray-800 mb-3">{cat.title}</h3>
+                          <div className="space-y-2">
+                            {cat.items.map((it) => (
+                              <label key={it.value} className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={seleccion.includes(it.value)}
+                                  onChange={() => toggleTipo(it.value)}
+                                  disabled={readOnly}
+                                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                />
+                                <span className="text-sm text-gray-700">{it.label}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Datos requeridos del evento (si se selecciona algún tipo) */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <label htmlFor="fechaEvento" className="block text-gray-700 text-sm font-bold mb-2">
+                          Fecha del evento{eventoRequerido && <span className="text-red-500"> *</span>}
+                        </label>
+                        <input
+                          type="date"
+                          id="fechaEvento"
+                          name="fechaEvento"
+                          value={atencionEmergenciaData.fechaEvento || ''}
+                          onChange={handleChange}
+                          required={eventoRequerido}
+                          className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="horaEvento" className="block text-gray-700 text-sm font-bold mb-2">
+                          Hora del evento{eventoRequerido && <span className="text-red-500"> *</span>}
+                        </label>
+                        <input
+                          type="time"
+                          id="horaEvento"
+                          name="horaEvento"
+                          value={atencionEmergenciaData.horaEvento || ''}
+                          onChange={handleChange}
+                          required={eventoRequerido}
+                          className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="lugarEvento" className="block text-gray-700 text-sm font-bold mb-2">
+                          Lugar del evento{eventoRequerido && <span className="text-red-500"> *</span>}
+                        </label>
+                        <input
+                          type="text"
+                          id="lugarEvento"
+                          name="lugarEvento"
+                          value={atencionEmergenciaData.lugarEvento || ''}
+                          onChange={handleChange}
+                          required={eventoRequerido}
+                          placeholder="Ej.: Vía pública, domicilio, trabajo, escuela…"
+                          className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="direccionEvento" className="block text-gray-700 text-sm font-bold mb-2">
+                          Dirección{eventoRequerido && <span className="text-red-500"> *</span>}
+                        </label>
+                        <input
+                          type="text"
+                          id="direccionEvento"
+                          name="direccionEvento"
+                          value={atencionEmergenciaData.direccionEvento || ''}
+                          onChange={handleChange}
+                          required={eventoRequerido}
+                          placeholder="Calle, barrio, referencia…"
+                          className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                      <div className="p-4 rounded-xl border border-gray-100 bg-white">
+                        <p className="block text-gray-700 text-sm font-bold mb-2">
+                          Custodia Policial{eventoRequerido && <span className="text-red-500"> *</span>}
+                        </p>
+                        <div className="flex items-center gap-6">
+                          <label className="inline-flex items-center gap-2">
+                            <input
+                              type="radio"
+                              className="form-radio"
+                              name="custodiaPolicial"
+                              value="true"
+                              checked={atencionEmergenciaData.custodiaPolicial === true}
+                              onChange={handleChange}
+                              required={eventoRequerido}
+                              disabled={readOnly}
+                            />
+                            <span className="text-sm text-gray-700">Sí</span>
+                          </label>
+                          <label className="inline-flex items-center gap-2">
+                            <input
+                              type="radio"
+                              className="form-radio"
+                              name="custodiaPolicial"
+                              value="false"
+                              checked={atencionEmergenciaData.custodiaPolicial === false}
+                              onChange={handleChange}
+                              required={eventoRequerido}
+                              disabled={readOnly}
+                            />
+                            <span className="text-sm text-gray-700">No</span>
+                          </label>
+                        </div>
+                      </div>
+                      <div className="p-4 rounded-xl border border-gray-100 bg-white">
+                        <p className="block text-gray-700 text-sm font-bold mb-2">
+                          Notificación{eventoRequerido && <span className="text-red-500"> *</span>}
+                        </p>
+                        <div className="flex items-center gap-6">
+                          <label className="inline-flex items-center gap-2">
+                            <input
+                              type="radio"
+                              className="form-radio"
+                              name="notificacion"
+                              value="true"
+                              checked={atencionEmergenciaData.notificacion === true}
+                              onChange={handleChange}
+                              required={eventoRequerido}
+                              disabled={readOnly}
+                            />
+                            <span className="text-sm text-gray-700">Sí</span>
+                          </label>
+                          <label className="inline-flex items-center gap-2">
+                            <input
+                              type="radio"
+                              className="form-radio"
+                              name="notificacion"
+                              value="false"
+                              checked={atencionEmergenciaData.notificacion === false}
+                              onChange={handleChange}
+                              required={eventoRequerido}
+                              disabled={readOnly}
+                            />
+                            <span className="text-sm text-gray-700">No</span>
+                          </label>
+                        </div>
+                        {hayViolencia && atencionEmergenciaData.notificacion !== true && (
+                          <p className="mt-2 text-xs text-rose-700">
+                            Previsión 094: por tratarse de violencia, se requiere notificación legal obligatoria (registre y coordine según protocolo).
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Filtro de seguridad vial (protocolos internacionales) */}
+                    {esTransito && (
+                      <div className="mb-5 p-4 rounded-2xl border border-sky-200 bg-sky-50">
+                        <h3 className="text-sm font-semibold text-sky-900 mb-3">Accidente de Tránsito – Seguridad vial</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Consumo de sustancias</label>
+                            <select
+                              value={(d.transito && d.transito.consumoSustancias) || ''}
+                              onChange={(e) => setTransito({ consumoSustancias: e.target.value })}
+                              disabled={readOnly}
+                              className="w-full border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-sky-200"
+                            >
+                              <option value="">Seleccionar…</option>
+                              <option value="NO">No</option>
+                              <option value="SI">Sí</option>
+                              <option value="NO_CONSTA">No consta</option>
+                            </select>
+                            <p className="text-xs text-gray-500 mt-1">Alineado a registro de trauma: sustancia/alcohol u otras.</p>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Uso de protección</label>
+                            <div className="flex items-center gap-5 flex-wrap">
+                              <label className="inline-flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={!!((d.transito && d.transito.proteccion && d.transito.proteccion.casco) || false)}
+                                  onChange={(e) => setTransito({ proteccion: { casco: e.target.checked } })}
+                                  disabled={readOnly}
+                                  className="w-4 h-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500"
+                                />
+                                <span className="text-sm text-gray-700">Casco</span>
+                              </label>
+                              <label className="inline-flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={!!((d.transito && d.transito.proteccion && d.transito.proteccion.cinturon) || false)}
+                                  onChange={(e) => setTransito({ proteccion: { cinturon: e.target.checked } })}
+                                  disabled={readOnly}
+                                  className="w-4 h-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500"
+                                />
+                                <span className="text-sm text-gray-700">Cinturón</span>
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Observaciones periciales (obligatorias si hay violencia) */}
+                    <div className="mb-4">
+                      <label htmlFor="observacionesAccidente" className="block text-gray-700 text-sm font-bold mb-2">
+                        Observaciones{hayViolencia && <span className="text-red-500"> *</span>}
+                      </label>
+                      <textarea
+                        id="observacionesAccidente"
+                        name="observacionesAccidente"
+                        value={atencionEmergenciaData.observacionesAccidente || ''}
+                        onChange={handleChange}
+                        minLength={hayViolencia ? 100 : undefined}
+                        required={hayViolencia}
+                        placeholder={hayViolencia ? 'Describa el relato pericial (mínimo 100 caracteres): mecanismo, agresor si aplica, tiempo, hallazgos, contexto…' : 'Observaciones clínicas y del evento…'}
+                        className={`shadow appearance-none border rounded w-full py-2 px-3 leading-tight focus:outline-none focus:shadow-outline ${
+                          hayViolencia && obsLen > 0 && obsLen < 100 ? 'border-rose-400' : 'text-gray-700'
+                        }`}
+                        rows={5}
                       />
-                      <span className="ml-2">{type}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <div className="mb-4">
-                <label htmlFor="observacionesAccidente" className="block text-gray-700 text-sm font-bold mb-2">Observaciones:</label>
-                <textarea
-                  id="observacionesAccidente"
-                  name="observacionesAccidente"
-                  value={atencionEmergenciaData.observacionesAccidente}
-                  onChange={handleChange}
-                  className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  rows="3"
-                ></textarea>
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 text-sm font-bold mb-2">Sugestivo Aliento Alcohólico:</label>
-                <div className="flex items-center">
-                  <label className="inline-flex items-center mr-4">
-                    <input
-                      type="radio"
-                      className="form-radio"
-                      name="sugestivoAlientoAlcoholico"
-                      value="true"
-                      checked={atencionEmergenciaData.sugestivoAlientoAlcoholico === true}
-                      onChange={handleChange}
-                    />
-                    <span className="ml-2">Sí</span>
-                  </label>
-                  <label className="inline-flex items-center">
-                    <input
-                      type="radio"
-                      className="form-radio"
-                      name="sugestivoAlientoAlcoholico"
-                      value="false"
-                      checked={atencionEmergenciaData.sugestivoAlientoAlcoholico === false}
-                      onChange={handleChange}
-                    />
-                    <span className="ml-2">No</span>
-                  </label>
-                </div>
-              </div>
+                      {hayViolencia && (
+                        <div className="flex justify-between mt-1">
+                          <span className={`text-xs ${obsLen < 100 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                            {obsLen < 100 ? `⚠️ Relato insuficiente (${obsLen}/100).` : '✅ Relato pericial completo.'}
+                          </span>
+                          <span className="text-xs text-gray-500">Requisito de calidad legal (MSP).</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Aliento alcohólico */}
+                    <div className="mb-2">
+                      <p className="block text-gray-700 text-sm font-bold mb-2">
+                        Sugestivo de aliento alcohólico{eventoRequerido && <span className="text-red-500"> *</span>}
+                      </p>
+                      <div className="flex items-center gap-6">
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="radio"
+                            className="form-radio"
+                            name="sugestivoAlientoAlcoholico"
+                            value="true"
+                            checked={atencionEmergenciaData.sugestivoAlientoAlcoholico === true}
+                            onChange={handleChange}
+                            required={eventoRequerido}
+                            disabled={readOnly}
+                          />
+                          <span className="text-sm text-gray-700">Sí</span>
+                        </label>
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="radio"
+                            className="form-radio"
+                            name="sugestivoAlientoAlcoholico"
+                            value="false"
+                            checked={atencionEmergenciaData.sugestivoAlientoAlcoholico === false}
+                            onChange={handleChange}
+                            required={eventoRequerido}
+                            disabled={readOnly}
+                          />
+                          <span className="text-sm text-gray-700">No</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
           {activeTab === 'antecedentes' && (
-            <div>
-              <h2 className="text-xl font-semibold mb-4 text-gray-800">Antecedentes Patológicos</h2>
-              {Object.keys(atencionEmergenciaData.antecedentesPatologicos).map(key => (
-                <div key={key} className="mb-4">
-                  <label htmlFor={`antecedentes-${key}`} className="block text-gray-700 text-sm font-bold mb-2">
-                    {key.charAt(0).toUpperCase() + key.slice(1)}:
-                  </label>
-                  <textarea
-                    id={`antecedentes-${key}`}
-                    name={key}
-                    value={atencionEmergenciaData.antecedentesPatologicos[key]}
-                    onChange={(e) => handleNestedChange('antecedentesPatologicos', key, e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                    rows="2"
-                  ></textarea>
-                </div>
-              ))}
+            <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm" style={{ fontFamily: "'Inter', 'Roboto', sans-serif" }}>
+              <h2 className="text-xl font-semibold mb-2 text-gray-800">Sección E – Antecedentes Patológicos</h2>
+              <p className="text-sm text-gray-500 mb-4">Centro de Salud Chone – Formulario 008 (MSP)</p>
+              {/* No aplica general */}
+              <div className="mb-6 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                <label className="flex items-center justify-between gap-4 cursor-pointer">
+                  <span className="text-sm font-medium text-gray-700">No aplica (todos los antecedentes)</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={!!(atencionEmergenciaData.antecedentesPatologicos?.noAplicaGeneral)}
+                      onChange={(e) => setNoAplicaGeneralAntecedentes(e.target.checked)}
+                      disabled={readOnly}
+                      className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm font-medium text-gray-600">No aplica</span>
+                  </div>
+                </label>
+              </div>
+              {/* Grid 2 columnas – 10 campos oficiales MSP */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {CAMPOS_ANTECEDENTES.map(({ key, label, num }) => {
+                  const ap = atencionEmergenciaData.antecedentesPatologicos || {};
+                  const valor = ap[key] != null ? ap[key] : '';
+                  const noAplicaCampo = !!(ap.noAplica && ap.noAplica[key]);
+                  const rows = Math.max(2, 1 + (String(valor).split('\n').length || 0));
+                  return (
+                    <div key={key} className="border border-gray-100 rounded-xl p-4 bg-white hover:border-gray-200 transition-colors">
+                      <div className="flex items-center justify-between mb-2">
+                        <label htmlFor={`antecedentes-${key}`} className="text-sm font-semibold text-gray-800">
+                          {num}. {label}
+                        </label>
+                        <label className="inline-flex items-center gap-2 cursor-pointer shrink-0">
+                          <input
+                            type="checkbox"
+                            checked={noAplicaCampo}
+                            onChange={(e) => setNoAplicaCampoAntecedente(key, e.target.checked)}
+                            disabled={readOnly || !!ap.noAplicaGeneral}
+                            className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="text-xs font-medium text-gray-500">No aplica</span>
+                        </label>
+                      </div>
+                      <textarea
+                        id={`antecedentes-${key}`}
+                        value={valor}
+                        onChange={(e) => handleNestedChange('antecedentesPatologicos', key, e.target.value)}
+                        disabled={readOnly || noAplicaCampo || !!ap.noAplicaGeneral}
+                        placeholder={noAplicaCampo || ap.noAplicaGeneral ? '—' : `Describa antecedentes ${label.toLowerCase()}…`}
+                        rows={Math.min(6, rows)}
+                        className="w-full py-2 px-3 border border-gray-200 rounded-lg text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 resize-y disabled:bg-gray-50 disabled:text-gray-400 text-sm"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 

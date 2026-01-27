@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { format } from 'date-fns';
-import { AlertCircle, Clock, FileText, User, Calendar } from 'lucide-react';
+import { AlertCircle, Clock, FileText, User, Calendar, ShieldAlert } from 'lucide-react';
 import Header from '../components/Header';
 
 const DashboardPendientes = () => {
@@ -165,11 +165,17 @@ const DashboardPendientes = () => {
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-3">
+                    <div className="flex items-center gap-3 mb-3 flex-wrap">
                       {getAlertaIcon(horasPendientes)}
                       {horasPendientes >= 24 && (
                         <span className="text-red-600 font-semibold text-sm">
                           Pendiente por más de 24 horas
+                        </span>
+                      )}
+                      {(atencion.alertaNotificacion094 || atencion.requiereNotificacion094) && (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-sm font-medium">
+                          <ShieldAlert className="w-4 h-4 text-amber-600" />
+                          Requiere notificación legal obligatoria (Previsión 094)
                         </span>
                       )}
                     </div>

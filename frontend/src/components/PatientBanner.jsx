@@ -1,6 +1,6 @@
 import React from 'react';
 import { differenceInYears, parseISO, format } from 'date-fns';
-import { User, Calendar, LogIn, Stethoscope, Circle, UserSearch, Activity, Heart, Droplet, Thermometer, Gauge, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { User, Calendar, LogIn, Stethoscope, Circle, UserSearch, Activity, Heart, Droplet, Thermometer, Gauge, TrendingUp, TrendingDown, Minus, AlertTriangle } from 'lucide-react';
 import { useSidebar } from '../contexts/SidebarContext';
 
 /** Comparar valor actual vs anterior y devolver 'up' | 'down' | 'stable' */
@@ -73,6 +73,14 @@ const PatientBanner = ({ paciente, admision, triaje, alergias = [], atencion, on
       }}
     >
       <div className="container mx-auto px-5 py-3">
+        {/* Alerta de alergias – aviso de peligro en header del paciente */}
+        {alergias && alergias.length > 0 && (
+          <div className="mb-3 px-4 py-2 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-red-800">
+            <AlertTriangle className="w-5 h-5 shrink-0 text-red-600" />
+            <span className="text-sm font-semibold">Alergias:</span>
+            <span className="text-sm">{alergias.join(', ')}</span>
+          </div>
+        )}
         <div className="flex items-start justify-between gap-4 flex-wrap">
           {/* Columna izquierda: Datos del paciente */}
           <div className="flex-1 min-w-0">

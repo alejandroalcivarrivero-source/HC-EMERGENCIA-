@@ -31,6 +31,32 @@ async function validarPuedeFirmar(atencionId) {
     return { puedeFirmar: false, motivo: 'Debe existir al menos un diagnóstico DEFINITIVO (excepto códigos Z).' };
   }
 
+  // Previsión 094: si hay violencia en Sección D, Observaciones obligatorias (mín. 100 caracteres)
+  const atencion = await AtencionEmergencia.findByPk(atencionId, {
+    attributes: ['tipoAccidenteViolenciaIntoxicacion', 'observacionesAccidente']
+  });
+  if (atencion && atencion.tipoAccidenteViolenciaIntoxicacion) {
+    let tipoD;
+    try {
+      tipoD = typeof atencion.tipoAccidenteViolenciaIntoxicacion === 'string'
+        ? JSON.parse(atencion.tipoAccidenteViolenciaIntoxicacion)
+        : atencion.tipoAccidenteViolenciaIntoxicacion;
+    } catch {
+      tipoD = { seleccion: [] };
+    }
+    const sel = Array.isArray(tipoD?.seleccion) ? tipoD.seleccion : [];
+    const hayViolencia = sel.some(v => {
+      const s = String(v || '').toUpperCase();
+      return s.startsWith('VIOLENCIA_') || s.includes('VIOLENCIA');
+    });
+    if (hayViolencia && (atencion.observacionesAccidente || '').trim().length < 100) {
+      return {
+        puedeFirmar: false,
+        motivo: 'Por tratarse de violencia, las Observaciones de la Sección D (Accidente, Violencia, Intoxicación) deben tener al menos 100 caracteres para cumplir el relato pericial (Previsión 094).'
+      };
+    }
+  }
+
   return { puedeFirmar: true };
 }
 

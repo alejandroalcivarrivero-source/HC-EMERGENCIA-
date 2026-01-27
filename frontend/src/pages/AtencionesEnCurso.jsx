@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import Header from '../components/Header';
-import { Clock, FileText, User } from 'lucide-react';
+import { Clock, FileText, User, ShieldAlert } from 'lucide-react';
 import { format } from 'date-fns';
 
 /**
@@ -117,6 +117,12 @@ export default function AtencionesEnCurso() {
                             {p?.numero_identificacion && `CI: ${p.numero_identificacion} · `}
                             Última actualización: {format(new Date(a.updatedAt || a.createdAt), 'dd/MM/yyyy HH:mm')}
                           </span>
+                          {(a.alertaNotificacion094 || a.requiereNotificacion094) && (
+                            <span className="inline-flex items-center gap-1.5 mt-1.5 px-2.5 py-0.5 bg-amber-50 border border-amber-200 text-amber-800 rounded text-xs font-medium">
+                              <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
+                              Requiere notificación legal obligatoria (Previsión 094)
+                            </span>
+                          )}
                         </div>
                         <span className="px-3 py-1 bg-blue-100 text-blue-700 text-sm font-bold rounded-full">
                           EN CURSO

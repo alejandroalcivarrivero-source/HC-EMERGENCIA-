@@ -148,7 +148,8 @@ exports.eliminarDiagnostico = async (req, res) => {
 
 /**
  * Validar si una atención puede ser firmada
- * Debe tener al menos un diagnóstico DEFINITIVO (excepto códigos Z)
+ * Requisitos: (1) al menos un diagnóstico DEFINITIVO (excepto códigos Z);
+ * (2) al menos un antecedente con contenido o "No aplica" marcado.
  */
 exports.validarFirma = async (req, res) => {
   try {
@@ -164,10 +165,63 @@ exports.validarFirma = async (req, res) => {
       return d.tipoDiagnostico === 'DEFINITIVO' || (esCodigoZ && d.tipoDiagnostico === 'NO APLICA');
     });
 
+    // Verificar antecedentes y Sección D (violencia + observaciones)
+    const atencion = await AtencionEmergencia.findByPk(atencionId, {
+      attributes: ['antecedentesPatologicos', 'tipoAccidenteViolenciaIntoxicacion', 'observacionesAccidente']
+    });
+    let antecedentesOk = true;
+    let motivoAntecedentes = null;
+    if (atencion && atencion.antecedentesPatologicos) {
+      const ap = typeof atencion.antecedentesPatologicos === 'string'
+        ? JSON.parse(atencion.antecedentesPatologicos)
+        : atencion.antecedentesPatologicos;
+      const keys = ['alergicos', 'clinicos', 'ginecologicos', 'traumaticos', 'pediatricos', 'quirurgicos', 'farmacologicos', 'habitos', 'familiares', 'otros'];
+      const algunValor = keys.some(k => (ap[k] || '').toString().trim() !== '');
+      const noAplicaGeneral = !!ap.noAplicaGeneral;
+      const algunNoAplica = keys.some(k => !!(ap.noAplica && ap.noAplica[k]));
+      if (!algunValor && !noAplicaGeneral && !algunNoAplica) {
+        antecedentesOk = false;
+        motivoAntecedentes = 'Debe indicar al menos un antecedente o marcar "No aplica" en la Sección E.';
+      }
+    }
+
+    // Previsión 094: si hay violencia, Observaciones Sección D obligatorias (mín. 100 caracteres)
+    let violenciaOk = true;
+    let motivoViolencia = null;
+    if (atencion && atencion.tipoAccidenteViolenciaIntoxicacion) {
+      let tipoD;
+      try {
+        tipoD = typeof atencion.tipoAccidenteViolenciaIntoxicacion === 'string'
+          ? JSON.parse(atencion.tipoAccidenteViolenciaIntoxicacion)
+          : atencion.tipoAccidenteViolenciaIntoxicacion;
+      } catch {
+        tipoD = { seleccion: [] };
+      }
+      const sel = Array.isArray(tipoD?.seleccion) ? tipoD.seleccion : [];
+      const hayViolencia = sel.some(v => {
+        const s = String(v || '').toUpperCase();
+        return s.startsWith('VIOLENCIA_') || s.includes('VIOLENCIA');
+      });
+      if (hayViolencia) {
+        const obs = (atencion.observacionesAccidente || '').trim();
+        if (obs.length < 100) {
+          violenciaOk = false;
+          motivoViolencia = 'Por tratarse de violencia, las Observaciones de la Sección D (Accidente, Violencia, Intoxicación) deben tener al menos 100 caracteres para cumplir el relato pericial (Previsión 094).';
+        }
+      }
+    }
+
+    const puedeFirmar = (tieneDefinitivo || diagnosticos.length === 0) && antecedentesOk && violenciaOk;
+    const motivo = !violenciaOk ? motivoViolencia : (!antecedentesOk ? motivoAntecedentes : (!tieneDefinitivo && diagnosticos.length > 0 ? 'Debe existir al menos un diagnóstico DEFINITIVO (excepto códigos Z).' : null));
+
     res.status(200).json({
-      puedeFirmar: tieneDefinitivo || diagnosticos.length === 0,
+      puedeFirmar,
+      motivo,
       tieneDefinitivo,
-      totalDiagnosticos: diagnosticos.length
+      totalDiagnosticos: diagnosticos.length,
+      antecedentesOk,
+      violenciaOk,
+      ...(motivoViolencia && { motivoViolencia })
     });
   } catch (error) {
     console.error('Error al validar firma:', error);

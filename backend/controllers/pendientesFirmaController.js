@@ -78,16 +78,27 @@ exports.getPendientesFirma = async (req, res) => {
       order: [['createdAt', 'ASC']] // Más antiguos primero
     });
 
-    // Calcular horas pendientes y agregar alertas
+    // Calcular horas pendientes y agregar alertas (incl. Previsión 094)
     const ahora = new Date();
     const atencionesConAlertas = atenciones.map(atencion => {
       const horasPendientes = Math.floor((ahora - new Date(atencion.createdAt)) / (1000 * 60 * 60));
       const alerta24h = horasPendientes >= 24;
-
+      let alertaNotificacion094 = false;
+      if (atencion.tipoAccidenteViolenciaIntoxicacion) {
+        try {
+          const tipoD = typeof atencion.tipoAccidenteViolenciaIntoxicacion === 'string'
+            ? JSON.parse(atencion.tipoAccidenteViolenciaIntoxicacion)
+            : atencion.tipoAccidenteViolenciaIntoxicacion;
+          alertaNotificacion094 = !!(tipoD?.atencionViolencia || tipoD?.requiereNotificacion094);
+        } catch {
+          // ignorar JSON inválido
+        }
+      }
       return {
         ...atencion.toJSON(),
         horasPendientes,
-        alerta24h
+        alerta24h,
+        alertaNotificacion094
       };
     });
 
@@ -271,10 +282,21 @@ exports.getAtencionesEnCurso = async (req, res) => {
       }
     }
 
-    // 3. Combinar ambos resultados
+    // 3. Combinar y enriquecer con alerta Previsión 094
+    const enriquecer094 = (a) => {
+      if (!a.tipoAccidenteViolenciaIntoxicacion) return { ...a, alertaNotificacion094: false };
+      try {
+        const tipoD = typeof a.tipoAccidenteViolenciaIntoxicacion === 'string'
+          ? JSON.parse(a.tipoAccidenteViolenciaIntoxicacion)
+          : a.tipoAccidenteViolenciaIntoxicacion;
+        return { ...a, alertaNotificacion094: !!(tipoD?.atencionViolencia || tipoD?.requiereNotificacion094) };
+      } catch {
+        return { ...a, alertaNotificacion094: false };
+      }
+    };
     const todasLasAtenciones = [
-      ...atencionesPendientes.map(a => a.toJSON()),
-      ...pacientesEnAtencion
+      ...atencionesPendientes.map(a => enriquecer094(a.toJSON())),
+      ...pacientesEnAtencion.map(a => ({ ...a, alertaNotificacion094: false }))
     ];
 
     // Ordenar por updatedAt descendente y limitar a 10

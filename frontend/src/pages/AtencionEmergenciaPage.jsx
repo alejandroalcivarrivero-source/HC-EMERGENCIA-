@@ -204,6 +204,7 @@ const AtencionEmergenciaPage = () => {
               signosVitalesData={signosVitalesDetails}
               motivoConsulta={motivoConsulta}
               readOnly={atencion?.estadoFirma === 'FINALIZADO_FIRMADO'}
+              onAlergiasChange={setAlergias}
             />
           </div>
 
