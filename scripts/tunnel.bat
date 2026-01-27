@@ -1,15 +1,14 @@
 @echo off
 REM Script para crear túnel SSH a la base de datos desde casa
-REM Este script crea un túnel SSH que redirige el puerto local 3307 al servidor de BD
+REM Redirige puerto local 3308 -> 172.16.1.248:3306 en el puente
 
 echo ========================================
 echo   TUNEL SSH - Base de Datos HC Emergencia
 echo ========================================
 echo.
 echo Creando túnel SSH...
-echo Puerto local: 3307
-echo Servidor remoto: 172.16.1.248:3306
-echo Servidor SSH: 26.223.87.142
+echo Puerto local: 3308 - Destino: 172.16.1.248:3306
+echo Servidor SSH (puente): 26.223.87.142
 echo Usuario: TICS
 echo.
 echo NOTA: Este script mantendrá la ventana abierta mientras el túnel esté activo.
@@ -27,9 +26,9 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 
-REM Crear el túnel SSH
+REM Crear el túnel SSH: 3308 local -> 172.16.1.248:3306
 REM ssh -L [puerto_local]:[host_remoto]:[puerto_remoto] [usuario]@[servidor_ssh]
-ssh -L 3307:172.16.1.248:3306 TICS@26.223.87.142
+ssh -L 3308:172.16.1.248:3306 TICS@26.223.87.142
 
 if %ERRORLEVEL% NEQ 0 (
     echo.

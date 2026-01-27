@@ -12,10 +12,10 @@ const DB_CONFIG = {
     dialect: process.env.DB_DIALECT || 'mariadb'
   },
   CASA: {
-    // Modo CASA: Usa túnel SSH local (localhost:3307)
-    // El túnel SSH debe estar activo antes de conectar
+    // Modo CASA/TÚNEL: 127.0.0.1:3308 (extremo local del túnel SSH)
+    // El túnel mapea 3308 local → 172.16.1.248:3306 en el puente (26.223.87.142)
     host: process.env.DB_HOST_CASA || '127.0.0.1',
-    port: process.env.DB_PORT_CASA || '3307',
+    port: process.env.DB_PORT_CASA || '3308',
     user: process.env.DB_USER || 'TICS',
     password: process.env.DB_PASSWORD_CASA || 'TICS20141',
     database: process.env.DB_NAME || 'EMERGENCIA',
@@ -88,7 +88,7 @@ async function connectWithFallback() {
       throw error;
     }
   } else if (mode === 'CASA') {
-    // Modo CASA: Usa túnel SSH local (localhost:3307)
+    // Modo CASA: Usa túnel SSH local (localhost:3308)
     const config = DB_CONFIG.CASA;
     const db = createSequelizeInstance(config);
     console.log(`🔌 Intentando conectar a BD CASA (Túnel SSH): ${config.host}:${config.port}`);
@@ -152,6 +152,7 @@ async function connectWithFallback() {
 }
 
 // Función helper para copiar propiedades importantes de una instancia a otra
+// NO copiar source.models: los modelos se definen en target; source (db nueva) viene vacía.
 function copySequelizeInstance(source, target) {
   // Copiar métodos importantes
   const methods = ['authenticate', 'sync', 'query', 'transaction', 'close', 'getQueryInterface'];
@@ -160,11 +161,7 @@ function copySequelizeInstance(source, target) {
       target[method] = source[method].bind(source);
     }
   });
-  
-  // Copiar propiedades importantes
-  if (source.models) {
-    target.models = source.models;
-  }
+  // Mantener target.models: no sobrescribir con source.models (source está vacía al conectar por fallback)
   if (source.config) {
     target.config = source.config;
   }
@@ -173,7 +170,10 @@ function copySequelizeInstance(source, target) {
 // Proxy para redirigir llamadas a la instancia activa
 const sequelizeProxy = new Proxy(sequelize, {
   get(target, prop) {
-    // Si hay una instancia activa diferente, usar esa
+    // Los modelos siempre vienen de target: ahí se definen y tienen las asociaciones
+    if (prop === 'models') {
+      return target.models;
+    }
     if (activeSequelize !== target && activeSequelize[prop] !== undefined) {
       const value = activeSequelize[prop];
       return typeof value === 'function' ? value.bind(activeSequelize) : value;

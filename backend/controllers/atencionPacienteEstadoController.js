@@ -65,7 +65,7 @@ exports.getPacientesPorEstadoMedico = async (req, res) => {
       include: [
         {
           model: Admision,
-          as: 'Admision',
+          as: 'AdmisionEstado',
           attributes: ['id', 'fecha_hora_admision', 'triajeDefinitivoId', 'estado_paciente_id', 'prioridad_enfermeria', 'observacion_escalamiento', 'intentos_llamado', 'fecha_ultima_actividad', 'fecha_actualizacion'], // Incluir campos de escalamiento y gestión de pacientes
           include: [
             {
@@ -100,7 +100,7 @@ exports.getPacientesPorEstadoMedico = async (req, res) => {
         },
         {
           model: Usuario,
-          as: 'UsuarioResponsableEstado', // Usar el alias definido en AtencionPacienteEstado
+          as: 'UsuarioResponsableAtencion', // Alias definido en init-associations para usuarioResponsableId
           attributes: ['id'] // Obtener el ID del usuario responsable
         }
       ],
@@ -115,8 +115,8 @@ exports.getPacientesPorEstadoMedico = async (req, res) => {
     let finalPacientes = pacientesFiltrados
       .filter(paciente => {
         // Si el paciente está ATENDIDO, verificar las 24 horas desde admisión
-        if (paciente.estado_id === atendidoEstado.id && paciente.Admision && paciente.Admision.fecha_hora_admision) {
-          const fechaAdmision = moment(paciente.Admision.fecha_hora_admision).tz('America/Guayaquil');
+        if (paciente.estado_id === atendidoEstado.id && paciente.AdmisionEstado && paciente.AdmisionEstado.fecha_hora_admision) {
+          const fechaAdmision = moment(paciente.AdmisionEstado.fecha_hora_admision).tz('America/Guayaquil');
           const horasPasadas = ahora.diff(fechaAdmision, 'hours');
           
           console.log(`[getPacientesPorEstadoMedico] Paciente ATENDIDO - Admisión ID: ${paciente.admisionId}, Horas desde admisión: ${horasPasadas}`);
@@ -128,25 +128,27 @@ exports.getPacientesPorEstadoMedico = async (req, res) => {
         // Para todos los demás estados, mostrar sin restricción
         return true;
       })
-      .map(paciente => ({
-        ...paciente.toJSON(),
-        usuarioResponsableId: paciente.UsuarioResponsableEstado ? paciente.UsuarioResponsableEstado.id : null
-      }));
+      .map(paciente => {
+        const json = paciente.toJSON();
+        // Compatibilidad con frontend que espera "Admision" (alias en init-associations es AdmisionEstado)
+        if (json.AdmisionEstado) json.Admision = json.AdmisionEstado;
+        return { ...json, usuarioResponsableId: paciente.UsuarioResponsableAtencion ? paciente.UsuarioResponsableAtencion.id : null };
+      });
 
     // Lógica para ordenar con PRIORIDAD DE ENFERMERÍA primero, luego por triaje
     const ordenTriaje = { 'Rojo': 1, 'Naranja': 2, 'Amarillo': 3, 'Verde': 4, 'Azul': 5, 'Gris': 6 };
     finalPacientes.sort((a, b) => {
       // PRIMERO: Ordenar por prioridad de enfermería (los escalados van primero)
-      const prioridadA = a.Admision ? a.Admision.prioridad_enfermeria : 0;
-      const prioridadB = b.Admision ? b.Admision.prioridad_enfermeria : 0;
+      const prioridadA = a.AdmisionEstado ? a.AdmisionEstado.prioridad_enfermeria : 0;
+      const prioridadB = b.AdmisionEstado ? b.AdmisionEstado.prioridad_enfermeria : 0;
       
       if (prioridadB !== prioridadA) {
         return prioridadB - prioridadA; // Los de prioridad 1 van primero (orden descendente)
       }
       
       // SEGUNDO: Ordenar por triaje definitivo
-      const triajeA = a.Admision && a.Admision.TriajeDefinitivo ? a.Admision.TriajeDefinitivo.nombre : 'Azul';
-      const triajeB = b.Admision && b.Admision.TriajeDefinitivo ? b.Admision.TriajeDefinitivo.nombre : 'Azul';
+      const triajeA = a.AdmisionEstado && a.AdmisionEstado.TriajeDefinitivo ? a.AdmisionEstado.TriajeDefinitivo.nombre : 'Azul';
+      const triajeB = b.AdmisionEstado && b.AdmisionEstado.TriajeDefinitivo ? b.AdmisionEstado.TriajeDefinitivo.nombre : 'Azul';
       
       const triajeOrder = ordenTriaje[triajeA] - ordenTriaje[triajeB];
       if (triajeOrder !== 0) {
@@ -154,7 +156,7 @@ exports.getPacientesPorEstadoMedico = async (req, res) => {
       }
       
       // TERCERO: Por hora de llegada (fecha_hora_admision)
-      return new Date(a.Admision.fecha_hora_admision) - new Date(b.Admision.fecha_hora_admision);
+      return new Date(a.AdmisionEstado.fecha_hora_admision) - new Date(b.AdmisionEstado.fecha_hora_admision);
     });
 
     console.log(`[getPacientesPorEstadoMedico] Estados buscados: ${estadosArray.join(', ')}`);
@@ -313,11 +315,11 @@ exports.getAtencionPacienteEstado = async (req, res) => {
       include: [
         {
           model: Admision,
-          as: 'Admision',
-          attributes: ['id', 'fecha_hora_admision', 'triajeId'], // Incluir triajeId
+          as: 'AdmisionEstado',
+          attributes: ['id', 'fecha_hora_admision', 'triajeDefinitivoId'], // Incluir triajeDefinitivoId
           include: [{
             model: CatTriaje,
-            as: 'Triaje',
+            as: 'TriajeDefinitivo',
             attributes: ['nombre', 'color']
           }]
         },

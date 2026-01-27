@@ -108,6 +108,11 @@ app.use('/api/verificar', require('./routes/verificarTabla')); // Ruta temporal 
 // Inicializar Socket.io ANTES de iniciar el servidor (para que esté listo cuando el servidor escuche)
 initSocketServer(httpServer);
 
+// Inicializar asociaciones en cuanto los modelos estén cargados, ANTES de escuchar peticiones.
+// Así evitamos "Pacientes is not associated to AtencionEmergencia" y alias incorrectos cuando
+// el dashboard llama a la API antes de que la BD termine de conectar.
+initAssociations();
+
 // Iniciar servidor HTTP (que incluye Socket.io) - INICIAR SIEMPRE, incluso si la BD falla
 httpServer.listen(PORT, () => {
   console.log(`🚀 Servidor backend escuchando en http://localhost:${PORT}`);
