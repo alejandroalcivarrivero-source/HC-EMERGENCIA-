@@ -114,19 +114,36 @@ httpServer.listen(PORT, () => {
   console.log(`📡 Socket.io habilitado para tiempo real en ws://localhost:${PORT}`);
   
   // Intentar conectar a la base de datos después de que el servidor esté escuchando
-  sequelize.authenticate()
-    .then(async () => {
-      console.log('✅ Conexión a la base de datos establecida.');
-      // Inicializar asociaciones después de cargar todos los modelos
-      initAssociations();
-      console.log('✅ Modelos sincronizados con la base de datos.');
+  // Usar la función de fallback automático
+  if (sequelize.connectWithFallback) {
+    sequelize.connectWithFallback()
+      .then(async () => {
+        console.log('✅ Conexión a la base de datos establecida.');
+        // Inicializar asociaciones después de cargar todos los modelos
+        initAssociations();
+        console.log('✅ Modelos sincronizados con la base de datos.');
 
-      // Iniciar la tarea programada
-      startPatientStatusCheck();
-      console.log('✅ Tarea programada de verificación de estado de pacientes iniciada.');
-    })
-    .catch((error) => {
-      console.error('❌ Error al conectar con la base de datos:', error.message);
-      console.log('⚠️ Servidor funcionando en modo degradado (sin BD). Socket.io sigue activo.');
-    });
+        // Iniciar la tarea programada
+        startPatientStatusCheck();
+        console.log('✅ Tarea programada de verificación de estado de pacientes iniciada.');
+      })
+      .catch((error) => {
+        console.error('❌ Error al conectar con la base de datos:', error.message);
+        console.log('⚠️ Servidor funcionando en modo degradado (sin BD). Socket.io sigue activo.');
+      });
+  } else {
+    // Fallback al método tradicional si no hay función de fallback
+    sequelize.authenticate()
+      .then(async () => {
+        console.log('✅ Conexión a la base de datos establecida.');
+        initAssociations();
+        console.log('✅ Modelos sincronizados con la base de datos.');
+        startPatientStatusCheck();
+        console.log('✅ Tarea programada de verificación de estado de pacientes iniciada.');
+      })
+      .catch((error) => {
+        console.error('❌ Error al conectar con la base de datos:', error.message);
+        console.log('⚠️ Servidor funcionando en modo degradado (sin BD). Socket.io sigue activo.');
+      });
+  }
 });

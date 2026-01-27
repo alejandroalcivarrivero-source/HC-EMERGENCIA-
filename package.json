@@ -1,0 +1,13 @@
+{
+  "name": "hc-emergencia-root",
+  "version": "1.0.0",
+  "scripts": {
+    "sync": "git pull origin main",
+    "dev": "concurrently \"cd backend && npm run dev\" \"cd frontend && npm run dev\"",
+    "save": "git add . && git commit -m \"avances\" && git push origin main",
+    "tunnel": "scripts\\tunnel.bat"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
