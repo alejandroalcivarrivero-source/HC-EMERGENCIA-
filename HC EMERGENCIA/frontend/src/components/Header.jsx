@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LayoutDashboard, RefreshCw, FileCheck, FileEdit, Users, Settings, FileText, List, History, BarChart3 } from 'lucide-react';
+import { LayoutDashboard, RefreshCw, FileCheck, FileEdit, Users, Settings, FileText, List, History, BarChart3, ClipboardList, UserCog, Video, UserPlus, Activity } from 'lucide-react';
 import { useSidebar } from '../contexts/SidebarContext';
 
 /** Solo operativo: uso clínico diario */
@@ -8,7 +8,7 @@ export const mainLinksMedico = [
   { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
   { name: 'Atenciones en Curso', path: '/atenciones-en-curso', icon: RefreshCw },
   { name: 'Bandeja de Pendientes', path: '/pendientes-firma', icon: FileCheck },
-  { name: 'Admisión', path: '/admision', icon: FileEdit },
+  { name: 'Admisión', path: '/admision', icon: ClipboardList },
   { name: 'Lista de Espera', path: '/lista-espera', icon: Users },
 ];
 
@@ -21,22 +21,16 @@ export const ajustesLinksMedico = [
 
 export const quickAccessLinks = {
     3: [
-      { name: 'Admisión', path: '/admision', icon: FileEdit },
-      { name: 'Gestión de Pacientes', path: '/signosvitales', icon: Users },
+      { name: 'Admisión', path: '/admision', icon: ClipboardList },
+      { name: 'Gestión de Pacientes', path: '/signosvitales', icon: Activity },
       { name: 'Mis Reportes', path: '/reportes', icon: BarChart3 },
     ],
     1: null,
     2: [{ name: 'Reportes', path: '/reportes', icon: BarChart3 }],
     4: [{ name: 'Reportes', path: '/reportes', icon: BarChart3 }],
     5: [
-      { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
-      { name: 'Atenciones en Curso', path: '/atenciones-en-curso', icon: RefreshCw },
-      { name: 'Bandeja de Pendientes', path: '/pendientes-firma', icon: FileCheck },
-      { name: 'Admisión', path: '/admision', icon: FileEdit },
-      { name: 'Lista de Espera', path: '/lista-espera', icon: Users },
-      { separator: true },
-      { name: 'Gestión de Usuarios', path: '/admin/usuarios', icon: Users },
-      { name: 'Videos', path: '/admin/videos', icon: FileText },
+      { name: 'Gestión de Usuarios', path: '/admin/usuarios', icon: UserCog },
+      { name: 'Videos', path: '/admin/videos', icon: Video },
       { name: 'Reportes Globales', path: '/reportes', icon: BarChart3 },
     ],
   };
@@ -134,15 +128,18 @@ export default function Header() {
         </div>
         <div className="flex-grow flex justify-center items-center cursor-pointer" onClick={() => navigate('/dashboard')}>
         </div>
-        <div className="relative" ref={dropdownRef}>
+        <div className="relative flex items-center gap-3" ref={dropdownRef}>
+          <div className="flex flex-col items-end">
+            <span className="text-sm font-bold">{userName || 'Usuario'}</span>
+            <span className="text-xs text-blue-100">{userRole}</span>
+          </div>
           <button
             onClick={() => setDropdownOpen(!dropdownOpen)}
-            className="flex flex-col items-end space-y-0 hover:underline focus:outline-none"
+            className="flex items-center justify-center w-10 h-10 rounded-full bg-blue-500 hover:bg-blue-700 focus:outline-none transition-colors"
+            title="Menú de usuario"
           >
-            <span className="text-sm font-bold">{userName || 'Usuario'}</span>
-            <span className="text-xs">{userRole}</span>
             <svg
-              className={`w-4 h-4 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`}
+              className={`w-5 h-5 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`}
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -176,9 +173,21 @@ export default function Header() {
         className={`fixed inset-y-0 left-0 w-64 bg-gray-800 text-white transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform duration-300 ease-in-out z-40`}
       >
         <div className="p-4" style={{ fontFamily: "'Inter', 'Roboto', sans-serif" }}>
-          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Menú</h2>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Menú</h2>
+            <button
+              onClick={() => setIsSidebarOpen(false)}
+              className="text-gray-400 hover:text-white transition-colors"
+              aria-label="Cerrar menú"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
           <nav>
             <ul className="space-y-0.5">
+              {/* Menú para Médicos (rol 1) */}
               {userRoleId === 1 && (
                 <>
                   {mainLinksMedico.map((link) => {
@@ -232,11 +241,13 @@ export default function Header() {
                   </li>
                 </>
               )}
+              {/* Menú para otros roles (Enfermería, Obstetriz, Estadístico, Administrador) */}
               {userRoleId && userRoleId !== 1 && quickAccessLinks[userRoleId] && quickAccessLinks[userRoleId].map((link, idx) => {
-                if (link.separator) return <li key={`sep-${idx}`}><div className="my-2 border-t border-gray-600" /></li>;
+                // Ignorar separadores ya que no son necesarios
+                if (link.separator) return null;
                 const Icon = link.icon;
                 return (
-                  <li key={link.name}>
+                  <li key={link.name || idx}>
                     <a
                       href={link.path}
                       className="flex items-center gap-3 py-2.5 px-4 rounded-xl hover:bg-white/10 transition-colors text-white"

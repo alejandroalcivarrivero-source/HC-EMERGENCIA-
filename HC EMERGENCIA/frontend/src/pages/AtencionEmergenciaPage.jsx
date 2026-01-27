@@ -7,6 +7,7 @@ import AtencionEmergenciaForm from '../components/AtencionEmergenciaForm';
 import DiagnosticosCIE10 from '../components/DiagnosticosCIE10';
 import ReasignarPacienteModal from '../components/ReasignarPacienteModal';
 import FirmaElectronica from '../components/FirmaElectronica';
+import BotonImprimirFormulario008 from '../components/BotonImprimirFormulario008';
 import { CheckCircle2 } from 'lucide-react';
 import { useSidebar } from '../contexts/SidebarContext';
 
@@ -163,13 +164,23 @@ const AtencionEmergenciaPage = () => {
     );
   }
 
-  const paciente = admisionDetails.Paciente;
-  const triaje = admisionDetails.TriajeDefinitivo;
+  const paciente = admisionDetails?.Paciente || null;
+  const triaje = admisionDetails?.TriajeDefinitivo || null;
   const antecedentes = atencion?.antecedentesPatologicos 
     ? (typeof atencion.antecedentesPatologicos === 'string' 
         ? JSON.parse(atencion.antecedentesPatologicos) 
         : atencion.antecedentesPatologicos)
     : null;
+
+  if (!paciente) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center text-gray-600">
+          <p>Cargando datos del paciente...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#f8fafc', fontFamily: "'Inter', 'Roboto', sans-serif" }}>
@@ -212,6 +223,23 @@ const AtencionEmergenciaPage = () => {
               <DiagnosticosCIE10
                 atencionId={atencion.id}
                 readOnly={atencion.estadoFirma === 'FIRMADO'}
+              />
+            </div>
+          )}
+
+          {/* Botón Imprimir Formulario 008 */}
+          {atencion && paciente && (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+              <h3 className="text-base font-semibold text-gray-800 mb-4">Imprimir Formulario 008</h3>
+              <BotonImprimirFormulario008
+                atencionId={atencion.id}
+                admisionId={admisionId}
+                paciente={paciente}
+                admision={admisionDetails}
+                atencion={atencion}
+                signosVitales={signosVitalesDetails}
+                triaje={triaje}
+                motivoConsulta={motivoConsulta}
               />
             </div>
           )}

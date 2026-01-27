@@ -198,14 +198,30 @@ export default function Dashboard() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   {(usuario.rol_id === 1 ? mainLinksMedico : quickAccessLinks[usuario.rol_id])?.filter((l) => !l.separator).map((link) => {
                     const Icon = link.icon;
+                    // Definir colores según el tipo de acceso
+                    const getIconColor = (name) => {
+                      if (name.includes('Admisión')) return 'text-blue-600 bg-blue-50';
+                      if (name.includes('Gestión de Pacientes') || name.includes('Lista de Espera')) return 'text-emerald-600 bg-emerald-50';
+                      if (name.includes('Reportes') || name.includes('Dashboard')) return 'text-purple-600 bg-purple-50';
+                      if (name.includes('Atenciones')) return 'text-amber-600 bg-amber-50';
+                      if (name.includes('Pendientes')) return 'text-orange-600 bg-orange-50';
+                      if (name.includes('Usuarios')) return 'text-indigo-600 bg-indigo-50';
+                      if (name.includes('Videos')) return 'text-red-600 bg-red-50';
+                      return 'text-gray-600 bg-gray-50';
+                    };
+                    const iconColorClass = getIconColor(link.name);
                     return (
                       <Link
                         key={link.name}
                         to={link.path}
-                        className="flex flex-col items-center justify-center p-5 bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md hover:border-gray-200 transition-all text-center"
-                        style={{ minHeight: '100px' }}
+                        className="flex flex-col items-center justify-center p-6 bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-lg hover:border-gray-300 transition-all text-center group"
+                        style={{ minHeight: '120px' }}
                       >
-                        {Icon && <Icon className="w-8 h-8 mb-2 text-gray-500" />}
+                        {Icon && (
+                          <div className={`w-14 h-14 rounded-xl flex items-center justify-center mb-3 ${iconColorClass} group-hover:scale-110 transition-transform`}>
+                            <Icon className="w-7 h-7" />
+                          </div>
+                        )}
                         <span className="text-sm font-semibold text-gray-800 leading-tight">{link.name}</span>
                       </Link>
                     );

@@ -5,6 +5,7 @@ import { format, differenceInYears, parseISO } from 'date-fns'; // Para manejar 
 import RecetaMedicaForm from './RecetaMedicaForm'; // Importar el componente de Receta Médica
 import OrdenExamenForm from './OrdenExamenForm'; // Importar el componente de Orden de Examen
 import OrdenImagenForm from './OrdenImagenForm'; // Importar el componente de Orden de Imagen
+import PrescripcionMedicaEstructurada from './PrescripcionMedicaEstructurada'; // Importar el componente de Prescripción Estructurada
 
 const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData }) => {
   const { admisionId } = useParams();
@@ -1414,61 +1415,19 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData 
           {activeTab === 'planTratamiento' && (
             <div>
               <h2 className="text-xl font-semibold mb-4 text-gray-800">Plan de Tratamiento</h2>
-              {atencionEmergenciaData.planTratamiento.map((item, index) => (
-                <div key={index} className="grid grid-cols-6 gap-2 mb-2">
-                  <input
-                    type="text"
-                    placeholder="Medicamento"
-                    value={item.medicamento}
-                    onChange={(e) => handleArrayChange('planTratamiento', index, 'medicamento', e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline col-span-2"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Vía"
-                    value={item.via}
-                    onChange={(e) => handleArrayChange('planTratamiento', index, 'via', e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Dosis"
-                    value={item.dosis}
-                    onChange={(e) => handleArrayChange('planTratamiento', index, 'dosis', e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Posología"
-                    value={item.posologia}
-                    onChange={(e) => handleArrayChange('planTratamiento', index, 'posologia', e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                  <input
-                    type="number"
-                    placeholder="Días"
-                    value={item.dias || ''}
-                    onChange={(e) => handleArrayChange('planTratamiento', index, 'dias', e.target.value === '' ? null : parseInt(e.target.value, 10))}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeArrayItem('planTratamiento', index)}
-                    className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded col-span-full"
-                  >
-                    Eliminar
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={() => addArrayItem('planTratamiento', { medicamento: '', via: '', dosis: '', posologia: '', dias: null })}
-                className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded mb-4"
-              >
-                Agregar Medicamento
-              </button>
-              <div className="mb-4">
-                <label htmlFor="observacionesPlanTratamiento" className="block text-gray-700 text-sm font-bold mb-2">Observaciones del Plan de Tratamiento:</label>
+              
+              {/* Componente de Prescripción Estructurada */}
+              <PrescripcionMedicaEstructurada
+                prescripciones={atencionEmergenciaData.planTratamiento || []}
+                onChange={(nuevasPrescripciones) => {
+                  handleChange({ target: { name: 'planTratamiento', value: nuevasPrescripciones } });
+                }}
+                readOnly={false}
+              />
+
+              {/* Observaciones adicionales */}
+              <div className="mt-6">
+                <label htmlFor="observacionesPlanTratamiento" className="block text-gray-700 text-sm font-bold mb-2">Observaciones Adicionales del Plan de Tratamiento:</label>
                 <textarea
                   id="observacionesPlanTratamiento"
                   name="observacionesPlanTratamiento"
