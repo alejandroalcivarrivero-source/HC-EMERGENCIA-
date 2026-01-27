@@ -21,7 +21,7 @@ exports.getPendientesFirma = async (req, res) => {
 
     // Construir condiciones de filtrado
     const whereClause = {
-      estadoFirma: 'PENDIENTE',
+      estadoFirma: { [Op.in]: ['BORRADOR', 'PENDIENTE_FIRMA'] }, // No firmadas aún
       esValida: true
     };
 
@@ -160,7 +160,7 @@ exports.getAtencionesEnCurso = async (req, res) => {
 
     // 1. Obtener atenciones pendientes (como antes)
     const whereClause = {
-      estadoFirma: 'PENDIENTE',
+      estadoFirma: { [Op.in]: ['BORRADOR', 'PENDIENTE_FIRMA'] }, // No firmadas aún
       esValida: true
     };
 

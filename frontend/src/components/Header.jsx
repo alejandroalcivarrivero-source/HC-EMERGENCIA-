@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LayoutDashboard, RefreshCw, FileCheck, FileEdit, Users, Settings, FileText, List, History, BarChart3 } from 'lucide-react';
+import { LayoutDashboard, RefreshCw, FileCheck, FileEdit, Users, Settings, FileText, List, History, BarChart3, FileKey } from 'lucide-react';
 import { useSidebar } from '../contexts/SidebarContext';
 
 /** Solo operativo: uso clínico diario */
@@ -14,6 +14,7 @@ export const mainLinksMedico = [
 
 /** No operativo: agrupado en Ajustes */
 export const ajustesLinksMedico = [
+  { name: 'Firma Electrónica', path: '/ajustes/firma-electronica', icon: FileKey },
   { name: 'Listado de Atenciones', path: '/atenciones-emergencia', icon: List },
   { name: 'Historial', path: '/historial', icon: History },
   { name: 'Reportes', path: '/reportes', icon: BarChart3 },

@@ -1409,7 +1409,7 @@ exports.obtenerAdmisionesActivas = async (req, res) => {
       // Obtener admisiones con atención pendiente asignada a este médico
       const atencionesPendientes = await AtencionEmergencia.findAll({
         where: {
-          estadoFirma: 'PENDIENTE',
+          estadoFirma: { [Op.in]: ['BORRADOR', 'PENDIENTE_FIRMA'] },
           esValida: true,
           [Op.or]: [
             { usuarioResponsableId: userId },
@@ -1560,7 +1560,7 @@ exports.obtenerAdmisionesActivas = async (req, res) => {
           return {
             admisionId: a.id,
             estado: estado,
-            tieneAtencionPendiente: a.AtencionEmergencia ? a.AtencionEmergencia.estadoFirma === 'PENDIENTE' : false
+            tieneAtencionPendiente: a.AtencionEmergencia ? ['BORRADOR','PENDIENTE_FIRMA'].includes(a.AtencionEmergencia.estadoFirma) : false
           };
         });
         console.log(`[obtenerAdmisionesActivas] Estados de las admisiones encontradas:`, estadosEncontrados);
@@ -1606,7 +1606,7 @@ exports.obtenerAdmisionesActivas = async (req, res) => {
 
       // Verificar si tiene atención pendiente
       const tieneAtencionPendiente = admision.AtencionEmergencia && 
-        admision.AtencionEmergencia.estadoFirma === 'PENDIENTE';
+        ['BORRADOR','PENDIENTE_FIRMA'].includes(admision.AtencionEmergencia.estadoFirma);
       const atencionId = tieneAtencionPendiente ? admision.AtencionEmergencia.id : null;
 
       return {

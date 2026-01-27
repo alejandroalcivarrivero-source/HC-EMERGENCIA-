@@ -6,7 +6,7 @@ import RecetaMedicaForm from './RecetaMedicaForm'; // Importar el componente de 
 import OrdenExamenForm from './OrdenExamenForm'; // Importar el componente de Orden de Examen
 import OrdenImagenForm from './OrdenImagenForm'; // Importar el componente de Orden de Imagen
 
-const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData }) => {
+const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData, readOnly = false }) => {
   const { admisionId } = useParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -150,6 +150,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData 
 
   // Función para guardar automáticamente
   const autoSave = useCallback(async (dataToSave, isImmediate = false) => {
+    if (readOnly) return;
     // Evitar guardar si no hay cambios
     const currentDataString = JSON.stringify(dataToSave);
     if (currentDataString === lastSavedRef.current && !isImmediate) {
@@ -199,11 +200,11 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData 
     } finally {
       setSaving(false);
     }
-  }, [admisionData, admisionId]);
+  }, [admisionData, admisionId, readOnly]);
 
   // Auto-save con debounce (2 segundos después de dejar de escribir)
   useEffect(() => {
-    if (loading || !admisionData) return;
+    if (loading || !admisionData || readOnly) return;
 
     // Cancelar timeout anterior
     if (timeoutRef.current) {
@@ -221,7 +222,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData 
         clearTimeout(timeoutRef.current);
       }
     };
-  }, [atencionEmergenciaData, autoSave, loading, admisionData]);
+  }, [atencionEmergenciaData, autoSave, loading, admisionData, readOnly]);
 
   const handleTabChange = (newTab) => {
     autoSave(atencionEmergenciaData, true);
@@ -229,9 +230,10 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData 
     setActiveTab(newTab);
   };
 
-  // Guardar al cerrar/recargar página
+  // Guardar al cerrar/recargar página (no en modo solo lectura)
   useEffect(() => {
     const handleBeforeUnload = (e) => {
+      if (readOnly) return;
       if (JSON.stringify(atencionEmergenciaData) !== lastSavedRef.current) {
         // Usar sendBeacon para guardar de forma síncrona antes de cerrar
         const token = localStorage.getItem('token');
@@ -264,7 +266,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData 
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [atencionEmergenciaData, admisionId, admisionData]);
+  }, [atencionEmergenciaData, admisionId, admisionData, readOnly]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -488,23 +490,32 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData 
 
   return (
     <div>
-      {/* Indicador de estado de guardado - Posicionado mejor */}
+      {/* Mensaje cuando el formulario está cerrado legalmente */}
+      {readOnly && (
+        <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3">
+          <span className="text-amber-600 shrink-0" aria-hidden>⚠️</span>
+          <p className="text-sm text-amber-800 font-medium">
+            Este formulario está cerrado legalmente. Cualquier adición debe realizarse mediante el Formulario 005 (Evolución).
+          </p>
+        </div>
+      )}
+      {/* Indicador de estado de guardado - Posicionado mejor (Guardar Progreso) */}
       <div className="fixed top-24 right-6 z-50 flex flex-col gap-2">
-        {saving && (
+        {saving && !readOnly && (
           <div className="bg-blue-500 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 animate-pulse">
             <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
-            Guardando...
+            Sincronizando...
           </div>
         )}
-        {saved && !saving && (
+        {saved && !saving && !readOnly && (
           <div className="bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2">
             <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
-            Guardado
+            Guardado exitoso
           </div>
         )}
         {saveError && (
@@ -518,6 +529,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData 
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        <fieldset disabled={readOnly} className={readOnly ? 'opacity-95 pointer-events-none select-none' : ''}>
         {/* Tabs de navegación mejorados */}
         <div className="border-b-2 border-gray-200">
           <div className="flex flex-wrap gap-2 overflow-x-auto pb-2">
@@ -1560,11 +1572,12 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData 
           <button
             type="submit"
             className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors shadow-md disabled:bg-gray-400 disabled:cursor-not-allowed"
-            disabled={loading}
+            disabled={loading || readOnly}
           >
-            {loading ? 'Guardando...' : 'Guardar Cambios'}
+            {loading ? 'Guardando...' : 'Guardar Progreso'}
           </button>
         </div>
+        </fieldset>
       </form>
     </div>
   );

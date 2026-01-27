@@ -106,7 +106,7 @@ exports.createAtencionEmergencia = async (req, res) => {
       condicionEgreso,
       referenciaEgreso,
       establecimientoEgreso,
-      estadoFirma: 'PENDIENTE' // Establecer como pendiente por defecto
+      estadoFirma: 'BORRADOR' // Ciclo de vida: BORRADOR → PENDIENTE_FIRMA → FINALIZADO_FIRMADO
     });
 
     console.log('Atención de emergencia creada exitosamente:', atencionEmergencia.toJSON());
@@ -357,6 +357,14 @@ exports.updateAtencionEmergencia = async (req, res) => {
     const atencionEmergencia = await AtencionEmergencia.findByPk(id);
     if (!atencionEmergencia) {
       return res.status(404).json({ message: 'Registro de atención de emergencia no encontrado.' });
+    }
+
+    // Bloquear edición si el formulario ya está cerrado legalmente (FINALIZADO_FIRMADO)
+    if (atencionEmergencia.estadoFirma === 'FINALIZADO_FIRMADO') {
+      return res.status(403).json({
+        message: 'Este formulario está cerrado legalmente. Cualquier adición debe realizarse mediante el Formulario 005 (Evolución).',
+        code: 'FORMULARIO_CERRADO'
+      });
     }
 
     // Validación: Si se proporciona fechaAtencion y horaAtencion, validar que no sean mayores a la fecha/hora actual

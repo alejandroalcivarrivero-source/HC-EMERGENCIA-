@@ -1,14 +1,12 @@
 const AtencionEmergencia = require('../models/atencionEmergencia');
 const DetalleDiagnosticos = require('../models/detalleDiagnosticos');
+const CertificadoFirma = require('../models/certificadoFirma');
 const Paciente = require('../models/pacientes');
 const Admision = require('../models/admisiones');
 const Usuario = require('../models/usuario');
-const fs = require('fs').promises;
-const path = require('path');
-
-// Nota: Se requiere instalar las siguientes dependencias:
-// npm install pdfkit pdf-lib node-forge
-// npm install --save-dev @types/node-forge (si usas TypeScript)
+const { encrypt, decrypt } = require('../utils/cryptoFirma');
+const { extraerMetadatos, abrirP12ParaFirma } = require('../utils/p12Metadatos');
+const { contenidoAFirmarForm008, firmarConClavePrivada, crearSelloDigital } = require('../utils/selloDigital');
 
 /**
  * Validar que una atención puede ser firmada
@@ -85,6 +83,23 @@ async function generarPDFFormulario008(atencionId) {
     doc.on('data', chunk => chunks.push(chunk));
     doc.on('end', () => {});
 
+    // Marca de agua "BORRADOR NO VÁLIDO" cuando el estado es BORRADOR (seguridad jurídica)
+    const estadoFirma = atencion.estadoFirma || atencion.estado_firma;
+    if (estadoFirma === 'BORRADOR') {
+      doc.save();
+      doc.opacity(0.28);
+      doc.fillColor('red');
+      doc.fontSize(42);
+      const cx = doc.page.width / 2;
+      const cy = doc.page.height / 2;
+      doc.translate(cx, cy);
+      doc.rotate(-35, { origin: [0, 0] });
+      doc.text('BORRADOR NO VÁLIDO', -200, -14, { width: 400, align: 'center' });
+      doc.restore();
+      doc.opacity(1);
+      doc.fillColor('black');
+    }
+
     // Encabezado
     doc.fontSize(16).text('FORMULARIO 008 - ATENCIÓN DE EMERGENCIA', { align: 'center' });
     doc.moveDown();
@@ -146,6 +161,38 @@ async function generarPDFFormulario008(atencionId) {
     doc.text(`Nombre: ${atencion.Usuario.nombres} ${atencion.Usuario.apellidos}`);
     doc.text(`Cédula: ${atencion.Usuario.cedula}`);
 
+    // Firma electrónica / Sello digital (formato legal MSP) — solo si ya fue firmado (FINALIZADO_FIRMADO)
+    const selloRaw = atencion.selloDigital || atencion.sello_digital;
+    if (selloRaw) {
+      try {
+        const sello = typeof selloRaw === 'string' ? JSON.parse(selloRaw) : selloRaw;
+        doc.moveDown();
+        doc.fontSize(12).text('FIRMA ELECTRÓNICA / SELLO DIGITAL (MSP)', { underline: true });
+        doc.fontSize(10);
+        doc.text(`Titular del certificado: ${sello.nombre || '—'}`);
+        doc.text(`Cédula/CI: ${sello.ci || '—'}`);
+        doc.text(`Entidad emisora del certificado: ${sello.entidadEmisora || '—'}`);
+        doc.text(`Fecha y hora de firma: ${sello.fechaFirma || '—'}`);
+        doc.text(`Algoritmo: ${sello.algoritmo || 'SHA256withRSA'}`);
+        doc.fontSize(9).fillColor('gray');
+        doc.text(`Digest (SHA-256): ${(sello.digestBase64 || '').slice(0, 56)}...`);
+        doc.fillColor('black').fontSize(10);
+        // QR de validación (solo en documento oficial FINALIZADO_FIRMADO)
+        if (estadoFirma === 'FINALIZADO_FIRMADO') {
+          try {
+            const QRCode = require('qrcode');
+            const verificationPayload = `HC-CHONE|FORM008|${atencionId}|${(sello.digestBase64 || '').slice(0, 32)}`;
+            const qrDataUrl = await QRCode.toDataURL(verificationPayload, { margin: 1, width: 120 });
+            doc.moveDown(0.5);
+            doc.fontSize(10).text('Código QR de validación:', doc.x, doc.y);
+            const qrY = doc.y + 4;
+            doc.image(qrDataUrl, doc.x, qrY, { width: 80 });
+            doc.y = qrY + 84;
+          } catch (_) { /* si falta qrcode o falla, se omite el QR */ }
+        }
+      } catch (_) { /* ignorar si el sello no es JSON válido */ }
+    }
+
     // Finalizar PDF
     doc.end();
 
@@ -164,57 +211,12 @@ async function generarPDFFormulario008(atencionId) {
 }
 
 /**
- * Firmar PDF con certificado .p12
- */
-async function firmarPDF(pdfBuffer, certificadoP12, password) {
-  try {
-    // Nota: Esta es una implementación básica. Para producción, se recomienda usar
-    // bibliotecas más robustas como pdf-lib con node-forge o pdf-signer
-    const forge = require('node-forge');
-    const { PDFDocument } = require('pdf-lib');
-
-    // Cargar el certificado P12
-    const p12Asn1 = forge.asn1.fromDer(certificadoP12.toString('binary'));
-    const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, password);
-
-    // Obtener la clave privada y el certificado
-    const bags = p12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag });
-    const keyBag = bags[forge.pki.oids.pkcs8ShroudedKeyBag];
-    const privateKey = keyBag[0].key;
-
-    const certBags = p12.getBags({ bagType: forge.pki.oids.certBag });
-    const certBag = certBags[forge.pki.oids.certBag];
-    const certificate = certBag[0].cert;
-
-    // Cargar el PDF
-    const pdfDoc = await PDFDocument.load(pdfBuffer);
-
-    // Agregar la firma al PDF
-    // Nota: pdf-lib no tiene soporte nativo para firmas digitales
-    // Se requiere una biblioteca adicional como pdf-signer o implementar manualmente
-    // Por ahora, retornamos el PDF sin firmar con una nota
-    
-    // TODO: Implementar firma digital real con pdf-signer o similar
-    // const signedPdf = await signPdf(pdfDoc, privateKey, certificate);
-    
-    // Por ahora, retornamos el PDF original
-    // En producción, implementar la firma real
-    const pdfBytes = await pdfDoc.save();
-    
-    return Buffer.from(pdfBytes);
-  } catch (error) {
-    console.error('Error al firmar PDF:', error);
-    throw new Error('Error al procesar el certificado .p12 o firmar el PDF.');
-  }
-}
-
-/**
- * Endpoint para firmar una atención
+ * Endpoint para firmar una atención (subiendo .p12 en el momento)
  */
 exports.firmarAtencion = async (req, res) => {
   try {
     const { atencionId } = req.params;
-    const { password } = req.body;
+    const password = (req.body && req.body.password) ? String(req.body.password).trim() : '';
 
     if (!req.file) {
       return res.status(400).json({ message: 'Debe proporcionar el archivo .p12 del certificado.' });
@@ -232,36 +234,31 @@ exports.firmarAtencion = async (req, res) => {
       return res.status(404).json({ message: 'Atención no encontrada.' });
     }
 
-    if (atencion.estadoFirma === 'FIRMADO') {
+    if (atencion.estadoFirma === 'FINALIZADO_FIRMADO') {
       return res.status(400).json({ message: 'Esta atención ya ha sido firmada.' });
     }
 
-    // Leer el certificado .p12 desde el buffer
-    const certificadoP12 = req.file.buffer;
+    const p12Buffer = req.file.buffer;
+    const { privateKey, metadatos } = abrirP12ParaFirma(p12Buffer, password);
+    const plain = atencion.get ? atencion.get({ plain: true }) : atencion;
+    const contenido = contenidoAFirmarForm008(plain);
+    const firmaBase64 = firmarConClavePrivada(contenido, privateKey);
+    const sello = crearSelloDigital(metadatos, contenido, firmaBase64);
 
-    // Generar el PDF
-    const pdfBuffer = await generarPDFFormulario008(atencionId);
-
-    // Firmar el PDF
-    const pdfFirmado = await firmarPDF(pdfBuffer, certificadoP12, password);
-
-    // Guardar el PDF firmado (opcional, según requerimientos)
-    // const rutaPDF = path.join(__dirname, '../uploads/formularios', `formulario_008_${atencionId}.pdf`);
-    // await fs.mkdir(path.dirname(rutaPDF), { recursive: true });
-    // await fs.writeFile(rutaPDF, pdfFirmado);
-
-    // Actualizar el estado de la atención
     await atencion.update({
-      estadoFirma: 'FIRMADO'
+      estadoFirma: 'FINALIZADO_FIRMADO',
+      selloDigital: JSON.stringify(sello)
     });
 
-    // Retornar el PDF firmado
+    const pdfBuffer = await generarPDFFormulario008(atencionId);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="formulario_008_${atencionId}_firmado.pdf"`);
-    res.send(pdfFirmado);
+    res.send(pdfBuffer);
   } catch (error) {
-    console.error('Error al firmar atención:', error);
-    res.status(500).json({ message: 'Error al firmar la atención.', error: error.message });
+    if (error.message && (error.message.includes('Invalid password') || error.message.includes('pkcs12'))) {
+      return res.status(400).json({ message: 'Contraseña incorrecta o archivo .p12 inválido.' });
+    }
+    return res.status(500).json({ message: error.message || 'Error al firmar la atención.' });
   }
 };
 
@@ -280,6 +277,143 @@ exports.getPDFPreview = async (req, res) => {
   } catch (error) {
     console.error('Error al generar PDF preview:', error);
     res.status(500).json({ message: 'Error al generar PDF preview.', error: error.message });
+  }
+};
+
+/** Validar .p12 y devolver solo metadatos (sin guardar clave). */
+exports.validarP12 = async (req, res) => {
+  try {
+    if (!req.file || !req.body.password) {
+      return res.status(400).json({ message: 'Debe enviar el archivo .p12 y la contraseña.' });
+    }
+    const meta = extraerMetadatos(req.file.buffer, req.body.password.trim());
+    return res.json(meta);
+  } catch (error) {
+    if (error.message && (error.message.includes('Invalid password') || error.message.includes('pkcs12'))) {
+      return res.status(400).json({ message: 'Contraseña incorrecta o archivo .p12 inválido.' });
+    }
+    return res.status(400).json({ message: error.message || 'Error al leer el certificado.' });
+  }
+};
+
+/** Guardar certificado .p12 cifrado (AES-256) para el usuario actual. */
+exports.guardarCertificado = async (req, res) => {
+  try {
+    const userId = req.userId;
+    if (!req.file || !req.body.password) {
+      return res.status(400).json({ message: 'Debe enviar el archivo .p12 y la contraseña.' });
+    }
+    const p12Buffer = req.file.buffer;
+    const password = req.body.password.trim();
+    const meta = extraerMetadatos(p12Buffer, password);
+    const { cipher, iv } = encrypt(p12Buffer);
+    const [row] = await CertificadoFirma.findOrCreate({
+      where: { usuarioId: userId },
+      defaults: {
+        p12Cifrado: cipher,
+        iv,
+        algoritmoCifrado: 'aes-256-gcm',
+        nombreTitular: meta.nombre,
+        ciTitular: meta.ci,
+        entidadEmisora: meta.entidadEmisora,
+        fechaExpiracion: meta.fechaExpiracion || null
+      }
+    });
+    if (!row) return res.status(500).json({ message: 'Error al guardar.' });
+    if (!row.isNewRecord) {
+      await row.update({
+        p12Cifrado: cipher,
+        iv,
+        algoritmoCifrado: 'aes-256-gcm',
+        nombreTitular: meta.nombre,
+        ciTitular: meta.ci,
+        entidadEmisora: meta.entidadEmisora,
+        fechaExpiracion: meta.fechaExpiracion || null
+      });
+    }
+    return res.json({ ok: true, metadatos: meta });
+  } catch (error) {
+    if (error.message && (error.message.includes('Invalid password') || error.message.includes('pkcs12'))) {
+      return res.status(400).json({ message: 'Contraseña incorrecta o archivo .p12 inválido.' });
+    }
+    if (error.message && error.message.includes('FERME_ENCRYPTION_KEY')) {
+      return res.status(500).json({ message: 'Configuración de cifrado faltante en el servidor.' });
+    }
+    return res.status(500).json({ message: error.message || 'Error al guardar el certificado.' });
+  }
+};
+
+/** Información del certificado guardado (solo metadatos, sin blob). */
+exports.getCertificadoInfo = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const row = await CertificadoFirma.findOne({
+      where: { usuarioId: userId },
+      attributes: ['nombreTitular', 'ciTitular', 'entidadEmisora', 'fechaExpiracion']
+    });
+    const tieneCertificado = !!row;
+    const metadatos = row ? {
+      nombre: row.nombreTitular,
+      ci: row.ciTitular,
+      entidadEmisora: row.entidadEmisora,
+      fechaExpiracion: row.fechaExpiracion
+    } : null;
+    return res.json({ tieneCertificado, metadatos });
+  } catch (error) {
+    return res.status(500).json({ message: error.message || 'Error al obtener el certificado.' });
+  }
+};
+
+/** Firmar atención con certificado guardado (modal solicita solo la clave). */
+exports.firmarConCertificadoGuardado = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { atencionId } = req.params;
+    const { password } = req.body || {};
+    if (!password || !String(password).trim()) {
+      return res.status(400).json({ message: 'Debe enviar la contraseña del certificado (clave de firma).' });
+    }
+
+    const validacion = await validarPuedeFirmar(atencionId);
+    if (!validacion.puedeFirmar) {
+      return res.status(400).json({ message: validacion.motivo });
+    }
+
+    const certRow = await CertificadoFirma.findOne({ where: { usuarioId: userId } });
+    if (!certRow) {
+      return res.status(400).json({ message: 'No tiene un certificado guardado. Cargue uno en Ajustes > Firma Electrónica.' });
+    }
+
+    const p12Buffer = decrypt(
+      Buffer.isBuffer(certRow.p12Cifrado) ? certRow.p12Cifrado : Buffer.from(certRow.p12Cifrado),
+      Buffer.isBuffer(certRow.iv) ? certRow.iv : Buffer.from(certRow.iv)
+    );
+    const { privateKey, metadatos } = abrirP12ParaFirma(p12Buffer, String(password).trim());
+
+    const atencion = await AtencionEmergencia.findByPk(atencionId);
+    if (!atencion) {
+      return res.status(404).json({ message: 'Atención no encontrada.' });
+    }
+    if (atencion.estadoFirma === 'FINALIZADO_FIRMADO') {
+      return res.status(400).json({ message: 'Esta atención ya ha sido firmada.' });
+    }
+
+    const plain = atencion.get ? atencion.get({ plain: true }) : atencion;
+    const contenido = contenidoAFirmarForm008(plain);
+    const firmaBase64 = firmarConClavePrivada(contenido, privateKey);
+    const sello = crearSelloDigital(metadatos, contenido, firmaBase64);
+
+    await atencion.update({
+      estadoFirma: 'FINALIZADO_FIRMADO',
+      selloDigital: JSON.stringify(sello)
+    });
+
+    return res.json({ ok: true, sello });
+  } catch (error) {
+    if (error.message && (error.message.includes('Invalid password') || error.message.includes('pkcs12') || error.message.includes('keyBag'))) {
+      return res.status(400).json({ message: 'Contraseña del certificado incorrecta.' });
+    }
+    return res.status(500).json({ message: error.message || 'Error al firmar.' });
   }
 };
 

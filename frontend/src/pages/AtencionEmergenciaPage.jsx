@@ -203,6 +203,7 @@ const AtencionEmergenciaPage = () => {
               admisionData={admisionDetails}
               signosVitalesData={signosVitalesDetails}
               motivoConsulta={motivoConsulta}
+              readOnly={atencion?.estadoFirma === 'FINALIZADO_FIRMADO'}
             />
           </div>
 
@@ -211,27 +212,29 @@ const AtencionEmergenciaPage = () => {
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
               <DiagnosticosCIE10
                 atencionId={atencion.id}
-                readOnly={atencion.estadoFirma === 'FIRMADO'}
+                readOnly={atencion.estadoFirma === 'FINALIZADO_FIRMADO'}
               />
             </div>
           )}
 
-          {/* Finalizar y Firmar */}
-          {atencion && atencion.estadoFirma === 'PENDIENTE' && (
+          {/* Firmar y Cerrar: solo si no está finalizado/firmado */}
+          {atencion && atencion.estadoFirma !== 'FINALIZADO_FIRMADO' && (
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-              <h3 className="text-base font-semibold text-gray-800 mb-4">Finalizar y Firmar</h3>
+              <h3 className="text-base font-semibold text-gray-800 mb-4">Firmar y Cerrar</h3>
               <FirmaElectronica atencionId={atencion.id} />
             </div>
           )}
 
-          {/* Formulario Firmado */}
-          {atencion && atencion.estadoFirma === 'FIRMADO' && (
+          {/* Formulario cerrado legalmente (FINALIZADO_FIRMADO) */}
+          {atencion && atencion.estadoFirma === 'FINALIZADO_FIRMADO' && (
             <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5">
               <div className="flex items-center gap-3 text-emerald-700">
                 <CheckCircle2 className="w-5 h-5 shrink-0" />
                 <div>
-                  <p className="font-semibold text-sm">Formulario firmado</p>
-                  <p className="text-xs text-emerald-600 mt-0.5">Bloqueado para edición.</p>
+                  <p className="font-semibold text-sm">Formulario cerrado legalmente</p>
+                  <p className="text-xs text-emerald-600 mt-0.5">
+                    Este formulario está cerrado legalmente. Cualquier adición debe realizarse mediante el Formulario 005 (Evolución).
+                  </p>
                 </div>
               </div>
             </div>

@@ -153,10 +153,16 @@ const AtencionEmergencia = sequelize.define('AtencionEmergencia', {
   },
   // Campos adicionales para gestión de firma y responsabilidad
   estadoFirma: {
-    type: DataTypes.ENUM('PENDIENTE', 'FIRMADO'),
+    type: DataTypes.ENUM('BORRADOR', 'PENDIENTE_FIRMA', 'FINALIZADO_FIRMADO'),
     allowNull: false,
-    defaultValue: 'PENDIENTE',
+    defaultValue: 'BORRADOR',
     field: 'estado_firma'
+  },
+  selloDigital: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    field: 'sello_digital',
+    comment: 'JSON del sello: {nombre, ci, entidadEmisora, fechaFirma, digestBase64, algoritmo}'
   },
   usuarioResponsableId: {
     type: DataTypes.INTEGER,

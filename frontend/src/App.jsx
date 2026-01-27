@@ -28,6 +28,7 @@ import ConfirmModal from './components/ConfirmModal'; // Importar ConfirmModal
 import DashboardPendientes from './pages/DashboardPendientes';
 import FirmarAtencionPage from './pages/FirmarAtencionPage';
 import AtencionesEnCurso from './pages/AtencionesEnCurso';
+import AjustesFirmaElectronica from './pages/AjustesFirmaElectronica';
 
  function RutaPrivada({ children }) {
   const token = localStorage.getItem('token');
@@ -260,6 +261,14 @@ function App() {
         element={
           <RutaPrivada>
             <FirmarAtencionPage />
+          </RutaPrivada>
+        }
+      />
+      <Route
+        path="/ajustes/firma-electronica"
+        element={
+          <RutaPrivada>
+            <AjustesFirmaElectronica />
           </RutaPrivada>
         }
       />

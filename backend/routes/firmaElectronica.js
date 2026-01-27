@@ -22,7 +22,7 @@ const upload = multer({
   }
 });
 
-// Firmar atención (requiere archivo .p12 y contraseña)
+// Firmar atención (requiere archivo .p12 y contraseña) — flujo legado
 router.post('/firmar/:atencionId', 
   validarToken, 
   upload.single('certificado'),
@@ -31,5 +31,15 @@ router.post('/firmar/:atencionId',
 
 // Obtener PDF preview del formulario
 router.get('/preview/:atencionId', validarToken, firmaElectronicaController.getPDFPreview);
+
+// ——— Certificado en perfil (Ajustes > Firma Electrónica) ———
+// Validar .p12 y obtener metadatos (sin guardar; para mostrar antes de guardar)
+router.post('/validar-p12', validarToken, upload.single('certificado'), firmaElectronicaController.validarP12);
+// Guardar .p12 cifrado AES-256 en BD (un certificado por usuario)
+router.post('/guardar-certificado', validarToken, upload.single('certificado'), firmaElectronicaController.guardarCertificado);
+// Información del certificado guardado (metadatos solo)
+router.get('/certificado/info', validarToken, firmaElectronicaController.getCertificadoInfo);
+// Firmar con certificado guardado (body: { password })
+router.post('/firmar-con-certificado/:atencionId', validarToken, express.json(), firmaElectronicaController.firmarConCertificadoGuardado);
 
 module.exports = router;
