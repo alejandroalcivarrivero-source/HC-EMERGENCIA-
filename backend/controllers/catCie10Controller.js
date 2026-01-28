@@ -12,16 +12,20 @@ exports.getAllCIE10 = async (req, res) => {
 };
 
 exports.searchCIE10 = async (req, res) => {
-  const { query } = req.query;
+  const termino = req.query.query || req.query.search || '';
+  if (!termino || String(termino).trim().length < 1) {
+    return res.status(200).json([]);
+  }
+  const q = String(termino).trim();
   try {
     const cie10 = await CatCIE10.findAll({
       where: {
         [Op.or]: [
-          { codigo: { [Op.iLike]: `%${query}%` } },
-          { descripcion: { [Op.iLike]: `%${query}%` } }
+          { codigo: { [Op.like]: `%${q}%` } },
+          { descripcion: { [Op.like]: `%${q}%` } }
         ]
       },
-      limit: 20 // Limitar resultados para búsquedas
+      limit: 30
     });
     res.status(200).json(cie10);
   } catch (error) {

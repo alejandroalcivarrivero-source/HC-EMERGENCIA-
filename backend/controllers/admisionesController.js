@@ -1,5 +1,6 @@
 const Admision = require('../models/admisiones');
 const Paciente = require('../models/pacientes');
+const CatSexos = require('../models/cat_sexos');
 const Usuario = require('../models/usuario');
 const CatEstadoPaciente = require('../models/cat_estado_paciente');
 const AtencionPacienteEstado = require('../models/atencionPacienteEstado');
@@ -15,7 +16,8 @@ const getAdmisionById = async (req, res) => {
         {
           model: Paciente,
           as: 'Paciente',
-          attributes: ['id', 'primer_nombre', 'segundo_nombre', 'primer_apellido', 'segundo_apellido', 'numero_identificacion', 'fecha_nacimiento']
+          attributes: ['id', 'primer_nombre', 'segundo_nombre', 'primer_apellido', 'segundo_apellido', 'numero_identificacion', 'fecha_nacimiento'],
+          include: [{ model: CatSexos, as: 'Sexo', attributes: ['nombre'], required: false }]
         },
         {
           model: CatTriaje,
@@ -48,12 +50,13 @@ const getAdmisionById = async (req, res) => {
       return res.status(404).json({ message: 'Admisión no encontrada.' });
     }
 
-    // Construir los nombres y apellidos completos si existen
+    // Construir los nombres y apellidos completos y sexo si existen
     const pacienteData = admision.Paciente ? {
       ...admision.Paciente.toJSON(),
       nombres: `${admision.Paciente.primer_nombre || ''} ${admision.Paciente.segundo_nombre || ''}`.trim(),
       apellidos: `${admision.Paciente.primer_apellido || ''} ${admision.Paciente.segundo_apellido || ''}`.trim(),
-      cedula: admision.Paciente.numero_identificacion // Añadir la cédula aquí
+      cedula: admision.Paciente.numero_identificacion,
+      sexo: admision.Paciente.Sexo ? admision.Paciente.Sexo.nombre : null
     } : null;
 
     const estadoPacienteNombre = admision.EstadoPaciente ? admision.EstadoPaciente.nombre : null;

@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { format, differenceInYears, parseISO } from 'date-fns'; // Para manejar fechas y horas
+import { format, differenceInYears, differenceInWeeks, parseISO } from 'date-fns'; // Para manejar fechas y horas
 import RecetaMedicaForm from './RecetaMedicaForm'; // Importar el componente de Receta Médica
 import OrdenExamenForm from './OrdenExamenForm'; // Importar el componente de Orden de Examen
 import OrdenImagenForm from './OrdenImagenForm'; // Importar el componente de Orden de Imagen
+import DiagnosticosCIE10 from './DiagnosticosCIE10';
 
 /** Campos oficiales MSP Sección E (Antecedentes Patológicos) – orden y etiquetas */
 const CAMPOS_ANTECEDENTES = [
@@ -18,6 +19,43 @@ const CAMPOS_ANTECEDENTES = [
   { key: 'habitos', label: 'Hábitos', num: 8 },
   { key: 'familiares', label: 'Familiares', num: 9 },
   { key: 'otros', label: 'Otros', num: 10 },
+];
+
+/** Sección G: Escala de Glasgow – opciones según Form 008 / estándar internacional */
+const GLASGOW_OCULAR = [
+  { value: 4, label: 'Espontánea' },
+  { value: 3, label: 'A la voz' },
+  { value: 2, label: 'Al dolor' },
+  { value: 1, label: 'Ninguna' },
+];
+const GLASGOW_VERBAL = [
+  { value: 5, label: 'Orientado' },
+  { value: 4, label: 'Confuso' },
+  { value: 3, label: 'Palabras inapropiadas' },
+  { value: 2, label: 'Sonidos' },
+  { value: 1, label: 'Ninguno' },
+];
+const GLASGOW_MOTORA = [
+  { value: 6, label: 'Obedece' },
+  { value: 5, label: 'Localiza' },
+  { value: 4, label: 'Retira' },
+  { value: 3, label: 'Flexión' },
+  { value: 2, label: 'Extensión' },
+  { value: 1, label: 'Ninguna' },
+];
+/** Clasificación GCS – estándar ATLS (alertas de color) */
+const glasgowSeveridad = (total) => {
+  if (total == null || total < 3) return null;
+  if (total === 15) return { texto: 'Normal', clase: 'text-green-700', bg: 'bg-green-50 border-green-200', alerta: null };
+  if (total >= 9) return { texto: 'Alerta: Deterioro neurológico leve/moderado', clase: 'text-amber-800', bg: 'bg-amber-50 border-amber-300', alerta: null };
+  return { texto: 'URGENCIA NEUROLÓGICA CRÍTICA: Evaluar asegurar vía aérea (Intubación)', clase: 'text-red-800 font-semibold', bg: 'bg-red-50 border-red-400 animate-pulse', alerta: 'critical' };
+};
+/** Reacción pupilar – Form 008 (descriptores oficiales) */
+const REACCION_PUPILAR = [
+  { value: 'ISOCORICAS', label: 'Isocóricas' },
+  { value: 'MIOTICAS', label: 'Mióticas' },
+  { value: 'MIDRIATICAS', label: 'Midriáticas' },
+  { value: 'NO_REACTIVAS', label: 'No reactivas' },
 ];
 
 /** Sección D (MSP): catálogo base por categoría (valores normalizados para detección/validación) */
@@ -49,11 +87,57 @@ const TIPOS_D = {
   ],
 };
 
-const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData, readOnly = false, onAlergiasChange }) => {
+/** Sección H – 15 ítems normativos del Examen Físico Regional (Form 008) */
+const EXAMEN_FISICO_REGIONAL_ITEMS = [
+  { key: 'estado_general', label: 'Estado general', num: 1 },
+  { key: 'piel_faneras', label: 'Piel y faneras', num: 2 },
+  { key: 'cabeza', label: 'Cabeza', num: 3 },
+  { key: 'ojos', label: 'Ojos', num: 4 },
+  { key: 'oidos', label: 'Oídos', num: 5 },
+  { key: 'nariz', label: 'Nariz', num: 6 },
+  { key: 'boca', label: 'Boca', num: 7 },
+  { key: 'orofaringe', label: 'Orofaringe', num: 8 },
+  { key: 'cuello', label: 'Cuello', num: 9 },
+  { key: 'axilas_mamas', label: 'Axilas y mamas', num: 10 },
+  { key: 'torax', label: 'Tórax', num: 11 },
+  { key: 'abdomen', label: 'Abdomen', num: 12 },
+  { key: 'columna_vertebral', label: 'Columna vertebral', num: 13 },
+  { key: 'miembros_superiores', label: 'Miembros superiores', num: 14 },
+  { key: 'miembros_inferiores', label: 'Miembros inferiores', num: 15 },
+];
+
+/** Sección K – 16 ítems normativos de Exámenes Complementarios (Form 008). Triggers: Lab (010) 1–5, Imagen (012) 8–14, Interconsulta (007) 15, Otros 16 */
+const ITEMS_SECCION_K = [
+  { id: 1, label: 'Hemograma', categoria: 'LAB' },
+  { id: 2, label: 'Química sanguínea', categoria: 'LAB' },
+  { id: 3, label: 'Coagulación', categoria: 'LAB' },
+  { id: 4, label: 'Gasometría', categoria: 'LAB' },
+  { id: 5, label: 'Uroanálisis', categoria: 'LAB' },
+  { id: 6, label: 'Heces', categoria: 'LAB' },
+  { id: 7, label: 'Otros laboratorio', categoria: 'LAB' },
+  { id: 8, label: 'Radiografía', categoria: 'IMAGEN' },
+  { id: 9, label: 'Ecografía', categoria: 'IMAGEN' },
+  { id: 10, label: 'TAC', categoria: 'IMAGEN' },
+  { id: 11, label: 'RMN', categoria: 'IMAGEN' },
+  { id: 12, label: 'EKG', categoria: 'IMAGEN' },
+  { id: 13, label: 'Otros estudios de imagen', categoria: 'IMAGEN' },
+  { id: 14, label: 'Otros imagen', categoria: 'IMAGEN' },
+  { id: 15, label: 'Interconsulta', categoria: 'INTERCONSULTA' },
+  { id: 16, label: 'Otros', categoria: 'OTROS' },
+];
+
+const DEFAULT_EXAMENES_K = () => ({
+  examenes_no_aplica: false,
+  items: Object.fromEntries([...Array(16)].map((_, i) => [i + 1, false])),
+  observaciones: '',
+});
+
+const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData, readOnly = false, onAlergiasChange, onRevaloracionMedica }) => {
   const { admisionId } = useParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [atencionIdFromSave, setAtencionIdFromSave] = useState(null); // id de atención creada por autoguardado en esta sesión
   const [atencionEmergenciaData, setAtencionEmergenciaData] = useState({
     // SECCIÓN: ATENCIÓN INICIAL
     fechaAtencion: '', // Se inicializará automáticamente al cargar
@@ -85,25 +169,32 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
     })(),
     // SECCIÓN: PROBLEMA ACTUAL
     enfermedadProblemaActual: '',
-    // SECCIÓN: EXAMEN FÍSICO
-    examenFisico: {
-      piel_faneras: '', cabeza: '', ojos: '', oidos: '', nariz: '', boca: '',
-      orofaringe: '', cuello: '', axilas_mamas: '', torax: '', abdomen: '',
-      columna_vertebral: '', miembros_superiores: '', miembros_inferiores: '',
-      glasgow_ocular: null, glasgow_verbal: null, glasgow_motora: null
-    },
+    // SECCIÓN: EXAMEN FÍSICO (H regional + G neurológico/constantes)
+    examenFisico: (() => {
+      const regionalKeys = EXAMEN_FISICO_REGIONAL_ITEMS.map(i => i.key);
+      const desc = Object.fromEntries(regionalKeys.map(k => [k, '']));
+      const norm = Object.fromEntries(regionalKeys.map(k => [`${k}_normal`, true]));
+      return {
+        ...desc,
+        ...norm,
+        glasgow_ocular: null, glasgow_verbal: null, glasgow_motora: null,
+        pupilas_derecha: '', pupilas_izquierda: '',
+        tiempo_llenado_capilar: '', glicemia_capilar: null, perimetro_cefalico: null, peso: null, talla: null
+      };
+    })(),
     // SECCIÓN: EXAMEN TRAUMATOLÓGICO
     examenFisicoTraumaCritico: '',
-    // SECCIÓN: OBSTETRICIA
+    // SECCIÓN: OBSTETRICIA (J)
     embarazoParto: {
+      estadoGestacion: '', // 'SI' | 'NO' | 'SOSPECHA' — ¿Embarazo confirmado o sospecha?
       numeroGestas: null, numeroPartos: null, numeroAbortos: null, numeroCesareas: null,
       fum: '', semanasGestacion: null, movimientoFetal: false, frecuenciaCardiacaFetal: null,
       rupturaMembranas: false, tiempo: '', afu: '', presentacion: '',
       dilatacion: '', borramiento: '', plano: '', pelvisViable: false,
       sangradoVaginal: false, contracciones: false, scoreMama: null
     },
-    // SECCIÓN: ESTUDIOS COMPLEMENTARIOS
-    examenesComplementarios: [],
+    // SECCIÓN K: EXÁMENES COMPLEMENTARIOS (objeto: examenes_no_aplica, items 1–16, observaciones)
+    examenesComplementarios: DEFAULT_EXAMENES_K(),
     // SECCIÓN: DIAGNÓSTICOS PRESUNTIVOS
     diagnosticosPresuntivos: [], // [{cie: '', descripcion: ''}]
     // SECCIÓN: DIAGNÓSTICOS DEFINITIVOS
@@ -116,11 +207,14 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
     referenciaEgreso: '',
     establecimientoEgreso: ''
   });
-  const TABS = ['inicioAtencion', 'enfermedadActual', 'antecedentes', 'accidenteViolencia', 'examenFisico', 'examenTrauma', 'embarazoParto', 'examenesComplementarios', 'diagnosticos', 'planTratamiento', 'condicionEgreso'];
+  const TABS = ['inicioAtencion', 'enfermedadActual', 'antecedentes', 'accidenteViolencia', 'seccionG', 'examenFisico', 'embarazoParto', 'examenesComplementarios', 'diagnosticos', 'planTratamiento', 'condicionEgreso'];
   const [activeTab, setActiveTab] = useState('inicioAtencion');
+  const [examenRegionalRevision, setExamenRegionalRevision] = useState(0); // fuerza re-render de lista H al usar "Marcar todo como Normal"
   const [showRecetaModal, setShowRecetaModal] = useState(false); // Estado para controlar el modal de receta
   const [showOrdenExamenModal, setShowOrdenExamenModal] = useState(false); // Estado para controlar el modal de orden de examen
   const [showOrdenImagenModal, setShowOrdenImagenModal] = useState(false); // Estado para controlar el modal de orden de imagen
+  const [showModalMefObstetricia, setShowModalMefObstetricia] = useState(false); // MEF: Mujer Edad Fértil sin estado gestación
+  const [showModalObservacionesEstudios, setShowModalObservacionesEstudios] = useState(false); // K: estudios marcados sin justificación
   const [saving, setSaving] = useState(false); // Estado para indicar que se está guardando
   const [saved, setSaved] = useState(false); // Estado para indicar que se guardó exitosamente
   const [saveError, setSaveError] = useState(null); // Estado para errores de guardado
@@ -129,6 +223,11 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
   const existingAtencionIdRef = useRef(null); // Referencia al ID de atención existente
   const horaInicialRef = useRef(null); // Referencia a la hora inicial de captura (para persistencia)
   const fechaInicialRef = useRef(null); // Referencia a la fecha inicial de captura (para persistencia)
+  const atencionEmergenciaDataRef = useRef(null); // Ref para “Marcar todo como Normal” (evitar prev obsoleto)
+
+  useEffect(() => {
+    atencionEmergenciaDataRef.current = atencionEmergenciaData;
+  }, [atencionEmergenciaData]);
 
   useEffect(() => {
     console.log("[AtencionEmergenciaForm] admisionData recibido:", admisionData);
@@ -174,17 +273,47 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
           }
         };
       }
+      const parsedEf = JSON.parse(atencionData.examenFisico || '{}');
+      const sv = signosVitalesData;
+      const regionalDefaults = {};
+      EXAMEN_FISICO_REGIONAL_ITEMS.forEach(({ key }) => {
+        regionalDefaults[key] = parsedEf[key] ?? '';
+        regionalDefaults[`${key}_normal`] = parsedEf[`${key}_normal`] ?? true;
+      });
+      const examenFisicoNorm = {
+        ...parsedEf,
+        ...regionalDefaults,
+        pupilas_derecha: parsedEf.pupilas_derecha ?? '',
+        pupilas_izquierda: parsedEf.pupilas_izquierda ?? '',
+        tiempo_llenado_capilar: parsedEf.tiempo_llenado_capilar ?? '',
+        glicemia_capilar: parsedEf.glicemia_capilar ?? sv?.glicemia_capilar ?? null,
+        perimetro_cefalico: parsedEf.perimetro_cefalico ?? sv?.perimetro_cefalico ?? null,
+        peso: parsedEf.peso ?? sv?.peso ?? null,
+        talla: parsedEf.talla ?? sv?.talla ?? null
+      };
+      const ep = JSON.parse(atencionData.embarazoParto || '{}');
+      const embarazoPartoNorm = { estadoGestacion: ep.estadoGestacion ?? '', ...ep };
+      const ecRaw = JSON.parse(atencionData.examenesComplementarios || '{}');
+      const ecNorm = (() => {
+        if (Array.isArray(ecRaw)) return DEFAULT_EXAMENES_K();
+        const items = {};
+        for (let i = 1; i <= 16; i++) items[i] = !!(ecRaw.items && ecRaw.items[i]);
+        return {
+          examenes_no_aplica: !!ecRaw.examenes_no_aplica,
+          items: { ...Object.fromEntries([...Array(16)].map((_, i) => [i + 1, false])), ...items },
+          observaciones: (ecRaw.observaciones ?? '').toString().trim()
+        };
+      })();
       setAtencionEmergenciaData(prevData => ({
         ...prevData,
         ...atencionData,
-        // Respetar la fecha y hora originales (no regenerar)
         fechaAtencion: fechaInicialRef.current,
         horaAtencion: horaInicialRef.current,
         tipoAccidenteViolenciaIntoxicacion: tipoNormalized,
         antecedentesPatologicos: apNormalized,
-        examenFisico: JSON.parse(atencionData.examenFisico || '{}'),
-        embarazoParto: JSON.parse(atencionData.embarazoParto || '{}'),
-        examenesComplementarios: JSON.parse(atencionData.examenesComplementarios || '[]'),
+        examenFisico: examenFisicoNorm,
+        embarazoParto: embarazoPartoNorm,
+        examenesComplementarios: ecNorm,
         diagnosticosPresuntivos: JSON.parse(atencionData.diagnosticosPresuntivos || '[]'),
         diagnosticosDefinitivos: JSON.parse(atencionData.diagnosticosDefinitivos || '[]'),
         planTratamiento: JSON.parse(atencionData.planTratamiento || '[]'),
@@ -193,26 +322,29 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
         ...atencionData,
         tipoAccidenteViolenciaIntoxicacion: tipoNormalized,
         antecedentesPatologicos: apNormalized,
-        examenFisico: JSON.parse(atencionData.examenFisico || '{}'),
-        embarazoParto: JSON.parse(atencionData.embarazoParto || '{}'),
-        examenesComplementarios: JSON.parse(atencionData.examenesComplementarios || '[]'),
+        examenFisico: examenFisicoNorm,
+        embarazoParto: embarazoPartoNorm,
+        examenesComplementarios: ecNorm,
         diagnosticosPresuntivos: JSON.parse(atencionData.diagnosticosPresuntivos || '[]'),
         diagnosticosDefinitivos: JSON.parse(atencionData.diagnosticosDefinitivos || '[]'),
         planTratamiento: JSON.parse(atencionData.planTratamiento || '[]'),
       }); // Inicializar referencia
     } else {
-      // Si no existe atención previa (Atención Nueva), inicializar fecha y hora automáticamente
+      // Si no existe atención previa (Atención Nueva), inicializar fecha/hora y precargar desde enfermería (Sección G)
       const fechaActual = format(new Date(), 'yyyy-MM-dd');
       const horaActual = format(new Date(), 'HH:mm');
-      
-      // Guardar la hora inicial para persistencia
-      fechaInicialRef.current = fechaActual;
-      horaInicialRef.current = horaActual;
-      
+      const sv = signosVitalesData;
       setAtencionEmergenciaData(prevData => ({
         ...prevData,
         fechaAtencion: fechaActual,
-        horaAtencion: horaActual
+        horaAtencion: horaActual,
+        examenFisico: {
+          ...prevData.examenFisico,
+          peso: prevData.examenFisico.peso ?? sv?.peso ?? null,
+          talla: prevData.examenFisico.talla ?? sv?.talla ?? null,
+          glicemia_capilar: prevData.examenFisico.glicemia_capilar ?? sv?.glicemia_capilar ?? null,
+          perimetro_cefalico: prevData.examenFisico.perimetro_cefalico ?? sv?.perimetro_cefalico ?? null
+        }
       }));
       lastSavedRef.current = null; // No hay datos guardados aún
     }
@@ -220,6 +352,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
     if (atencionData && admisionId) {
       const saved = localStorage.getItem(`form008_tab_${admisionId}`);
       if (saved && TABS.includes(saved)) setActiveTab(saved);
+      else if (saved === 'examenTrauma') setActiveTab('examenFisico');
     }
   }, [admisionData, atencionData, signosVitalesData]);
 
@@ -263,6 +396,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
           headers: { Authorization: `Bearer ${token}` }
         });
         existingAtencionIdRef.current = response.data.id;
+        setAtencionIdFromSave(response.data.id); // para que la pestaña Diagnósticos muestre DiagnosticosCIE10 sin recargar
       }
 
       lastSavedRef.current = currentDataString;
@@ -395,6 +529,15 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
     });
   };
 
+  /** Marcar todo como Normal en Sección H: usa el mismo handleNestedChange que el clic individual. */
+  const handleMarcarTodoNormalExamenRegional = () => {
+    EXAMEN_FISICO_REGIONAL_ITEMS.forEach(({ key }) => {
+      handleNestedChange('examenFisico', key, '');
+      handleNestedChange('examenFisico', `${key}_normal`, true);
+    });
+    setExamenRegionalRevision(r => r + 1);
+  };
+
   const handleArrayChange = (section, index, field, value) => {
     setAtencionEmergenciaData(prevData => {
       const newArray = [...prevData[section]];
@@ -436,6 +579,33 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
     }));
   };
 
+  /** Sección K: marcar/desmarcar ítem de exámenes complementarios (1–16) */
+  const setExamenItemK = (num, checked) => {
+    setAtencionEmergenciaData(prev => {
+      const ec = prev.examenesComplementarios || DEFAULT_EXAMENES_K();
+      return {
+        ...prev,
+        examenesComplementarios: {
+          ...ec,
+          items: { ...(ec.items || {}), [num]: !!checked }
+        }
+      };
+    });
+  };
+
+  /** Sección K: activar "No Aplica" — limpia ítems y observaciones, deshabilita edición de la sección */
+  const setNoAplicaEstudiosK = () => {
+    setAtencionEmergenciaData(prev => ({
+      ...prev,
+      examenesComplementarios: {
+        ...DEFAULT_EXAMENES_K(),
+        examenes_no_aplica: true,
+        items: Object.fromEntries([...Array(16)].map((_, i) => [i + 1, false])),
+        observaciones: ''
+      }
+    }));
+  };
+
   /** Notificar al padre cambio en alergias (para alerta en header del paciente). Evita sobrescribir con [] en el primer render antes de cargar desde atencionData. */
   const alergiasReportedOnce = useRef(false);
   useEffect(() => {
@@ -452,6 +622,26 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const paciente = admisionData?.Paciente;
+    const sexo = (paciente?.sexo || paciente?.Sexo?.nombre || '').trim();
+    const edadAnios = paciente?.fecha_nacimiento ? differenceInYears(new Date(), parseISO(paciente.fecha_nacimiento)) : null;
+    const esMasculino = /^(masculino|hombre)$/i.test(sexo);
+    const esMEF = !esMasculino && edadAnios != null && edadAnios >= 10 && edadAnios <= 49;
+    const estadoGest = atencionEmergenciaData?.embarazoParto?.estadoGestacion || '';
+    if (esMEF && !estadoGest) {
+      setShowModalMefObstetricia(true);
+      return;
+    }
+    // Sección K: si hay ítems marcados y observaciones vacías, bloquear guardado
+    const ec = atencionEmergenciaData?.examenesComplementarios || DEFAULT_EXAMENES_K();
+    if (!ec.examenes_no_aplica) {
+      const algunItem = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16].some(i => !!(ec.items && ec.items[i]));
+      const obs = (ec.observaciones ?? '').toString().trim();
+      if (algunItem && !obs) {
+        setShowModalObservacionesEstudios(true);
+        return;
+      }
+    }
     setLoading(true);
     setError(null);
 
@@ -692,26 +882,26 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
             <button
               type="button"
               className={`py-3 px-5 text-sm font-semibold transition-all whitespace-nowrap rounded-t-lg ${
+                activeTab === 'seccionG' 
+                  ? 'border-b-3 border-blue-600 text-blue-700 bg-blue-50 shadow-sm' 
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+              }`}
+              onClick={() => handleTabChange('seccionG')}
+              title="Valoración Neurológica y Constantes (Sección G)"
+            >
+              Valoración Neurológica y Constantes
+            </button>
+            <button
+              type="button"
+              className={`py-3 px-5 text-sm font-semibold transition-all whitespace-nowrap rounded-t-lg ${
                 activeTab === 'examenFisico' 
                   ? 'border-b-3 border-blue-600 text-blue-700 bg-blue-50 shadow-sm' 
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
               }`}
               onClick={() => handleTabChange('examenFisico')}
-              title="Evaluación física general del paciente"
+              title="Evaluación física general y trauma/crítico (Secciones H e I)"
             >
               🔍 Examen Físico
-            </button>
-            <button
-              type="button"
-              className={`py-3 px-5 text-sm font-semibold transition-all whitespace-nowrap rounded-t-lg ${
-                activeTab === 'examenTrauma' 
-                  ? 'border-b-3 border-blue-600 text-blue-700 bg-blue-50 shadow-sm' 
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-              }`}
-              onClick={() => handleTabChange('examenTrauma')}
-              title="Evaluación específica de trauma o casos críticos"
-            >
-              🚨 Examen Trauma
             </button>
             <button
               type="button"
@@ -1380,361 +1570,519 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
             </div>
           )}
 
+          {activeTab === 'seccionG' && (() => {
+            const edadAnios = admisionData?.Paciente?.fecha_nacimiento
+              ? differenceInYears(new Date(), parseISO(admisionData.Paciente.fecha_nacimiento))
+              : null;
+            const esPediatrico = edadAnios != null && edadAnios <= 14;
+            return (
+            <div className="space-y-6 bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4">Valoración Neurológica y Constantes</h2>
+
+              {/* Constantes precargadas (cabecera): TA, FC, FR, Temp, SpO2, Peso, Talla, Perímetro Cefálico */}
+              {signosVitalesData && !signosVitalesData.sin_constantes_vitales && (
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-1 border-b border-gray-100 pb-4 mb-4 text-sm">
+                  {signosVitalesData.presion_arterial != null && <span><span className="text-gray-500">TA:</span> <strong>{signosVitalesData.presion_arterial}</strong></span>}
+                  {signosVitalesData.frecuencia_cardiaca != null && <span><span className="text-gray-500">FC:</span> <strong>{signosVitalesData.frecuencia_cardiaca}</strong></span>}
+                  {signosVitalesData.frecuencia_respiratoria != null && <span><span className="text-gray-500">FR:</span> <strong>{signosVitalesData.frecuencia_respiratoria}</strong></span>}
+                  {signosVitalesData.temperatura != null && <span><span className="text-gray-500">Temp:</span> <strong>{signosVitalesData.temperatura}°</strong></span>}
+                  {signosVitalesData.saturacion_oxigeno != null && <span><span className="text-gray-500">SpO₂:</span> <strong>{signosVitalesData.saturacion_oxigeno}%</strong></span>}
+                  {signosVitalesData.peso != null && <span><span className="text-gray-500">Peso:</span> <strong>{signosVitalesData.peso} kg</strong></span>}
+                  {signosVitalesData.talla != null && <span><span className="text-gray-500">Talla:</span> <strong>{signosVitalesData.talla} cm</strong></span>}
+                  <span><span className="text-gray-500">Perím. cef.:</span> <strong>{esPediatrico && signosVitalesData.perimetro_cefalico != null ? `${signosVitalesData.perimetro_cefalico} cm` : 'N/A'}</strong></span>
+                </div>
+              )}
+
+              {/* Glasgow: Ocular (4), Verbal (5), Motora (6) – alertas ATLS */}
+              {(() => {
+                const o = atencionEmergenciaData.examenFisico.glasgow_ocular;
+                const v = atencionEmergenciaData.examenFisico.glasgow_verbal;
+                const m = atencionEmergenciaData.examenFisico.glasgow_motora;
+                const total = (o != null && v != null && m != null) ? o + v + m : null;
+                const sev = glasgowSeveridad(total);
+                const totalClase = total == null ? 'text-gray-500' : total >= 9 && total < 15 ? 'text-amber-700 font-semibold' : total < 9 ? 'text-red-700 font-bold animate-pulse' : 'text-gray-800';
+                const bgBox = total != null && total >= 9 && total < 15 ? 'bg-amber-50/50 border-amber-200' : total != null && total < 9 ? 'bg-red-50/50 border-red-300 animate-pulse' : 'bg-white border-gray-200';
+                return (
+                  <div className={`border rounded-lg p-4 ${bgBox}`}>
+                    <h3 className="text-base font-semibold text-gray-800 mb-3">Escala de Glasgow (total sobre 15)</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Ocular (4)</label>
+                        <select
+                          value={atencionEmergenciaData.examenFisico.glasgow_ocular ?? ''}
+                          onChange={(e) => handleNestedChange('examenFisico', 'glasgow_ocular', e.target.value === '' ? null : parseInt(e.target.value, 10))}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-500 bg-white"
+                          disabled={readOnly}
+                        >
+                          <option value="">— Seleccionar —</option>
+                          {GLASGOW_OCULAR.map(x => <option key={x.value} value={x.value}>{x.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Verbal (5)</label>
+                        <select
+                          value={atencionEmergenciaData.examenFisico.glasgow_verbal ?? ''}
+                          onChange={(e) => handleNestedChange('examenFisico', 'glasgow_verbal', e.target.value === '' ? null : parseInt(e.target.value, 10))}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-500 bg-white"
+                          disabled={readOnly}
+                        >
+                          <option value="">— Seleccionar —</option>
+                          {GLASGOW_VERBAL.map(x => <option key={x.value} value={x.value}>{x.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Motora (6)</label>
+                        <select
+                          value={atencionEmergenciaData.examenFisico.glasgow_motora ?? ''}
+                          onChange={(e) => handleNestedChange('examenFisico', 'glasgow_motora', e.target.value === '' ? null : parseInt(e.target.value, 10))}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-500 bg-white"
+                          disabled={readOnly}
+                        >
+                          <option value="">— Seleccionar —</option>
+                          {GLASGOW_MOTORA.map(x => <option key={x.value} value={x.value}>{x.label}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm text-gray-600">Total GCS:</span>
+                      <span className={`text-lg ${totalClase}`}>{total ?? '—'}</span>
+                      {total != null && total < 9 && (
+                        <span className="ml-2 px-2 py-0.5 bg-red-100 text-red-800 rounded text-sm font-semibold">Urgencia: Asegurar vía aérea</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Reacción pupilar Derecha e Izquierda */}
+              <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                <h3 className="text-base font-semibold text-gray-800 mb-3">Reacción pupilar</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Derecha</label>
+                    <select
+                      value={atencionEmergenciaData.examenFisico.pupilas_derecha ?? ''}
+                      onChange={(e) => handleNestedChange('examenFisico', 'pupilas_derecha', e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-500"
+                      disabled={readOnly}
+                    >
+                      <option value="">— Seleccionar —</option>
+                      {REACCION_PUPILAR.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Izquierda</label>
+                    <select
+                      value={atencionEmergenciaData.examenFisico.pupilas_izquierda ?? ''}
+                      onChange={(e) => handleNestedChange('examenFisico', 'pupilas_izquierda', e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-500"
+                      disabled={readOnly}
+                    >
+                      <option value="">— Seleccionar —</option>
+                      {REACCION_PUPILAR.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Valoración médica: solo llenado capilar y glicemia (perímetro cefálico solo arriba en constantes) */}
+              <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                <h3 className="text-base font-semibold text-gray-800 mb-3">Valoración médica</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Tiempo de llenado capilar (s)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min={0}
+                      value={atencionEmergenciaData.examenFisico.tiempo_llenado_capilar ?? ''}
+                      onChange={(e) => handleNestedChange('examenFisico', 'tiempo_llenado_capilar', e.target.value === '' ? '' : e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
+                      placeholder="Opcional (disponibilidad de insumos)"
+                      disabled={readOnly}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Glicemia capilar (mg/dl)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min={20}
+                      max={600}
+                      value={atencionEmergenciaData.examenFisico.glicemia_capilar ?? ''}
+                      onChange={(e) => handleNestedChange('examenFisico', 'glicemia_capilar', e.target.value === '' ? null : parseFloat(e.target.value))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
+                      placeholder="Opcional (disponibilidad de insumos)"
+                      disabled={readOnly || (signosVitalesData?.glicemia_capilar != null)}
+                      title={signosVitalesData?.glicemia_capilar != null ? 'Registrado por enfermería' : 'Opcional'}
+                    />
+                    {signosVitalesData?.glicemia_capilar != null && <span className="text-xs text-gray-500">(desde enfermería)</span>}
+                  </div>
+                </div>
+              </div>
+            </div>
+            );
+          })()}
+
           {activeTab === 'examenFisico' && (
-            <div>
-              <h2 className="text-xl font-semibold mb-4 text-gray-800">Examen Físico</h2>
-              {Object.keys(atencionEmergenciaData.examenFisico).filter(key => !key.startsWith('glasgow_')).map(key => (
-                <div key={key} className="mb-4">
-                  <label htmlFor={`examenFisico-${key}`} className="block text-gray-700 text-sm font-bold mb-2">
-                    {key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ')}:
-                  </label>
-                  <textarea
-                    id={`examenFisico-${key}`}
-                    name={key}
-                    value={atencionEmergenciaData.examenFisico[key]}
-                    onChange={(e) => handleNestedChange('examenFisico', key, e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                    rows="2"
-                  ></textarea>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+              <div className="grid grid-cols-1 lg:grid-cols-[60%_1fr] gap-6">
+                {/* Sección H: Examen Físico Regional (Sistemático) — 60% */}
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-semibold text-gray-800">H. Examen Físico Regional (Sistemático)</h2>
+                    <button
+                      type="button"
+                      onClick={handleMarcarTodoNormalExamenRegional}
+                      disabled={readOnly}
+                      className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Marcar todo como Normal
+                    </button>
+                  </div>
+                  <div key={`examen-regional-${examenRegionalRevision}`} className="space-y-3 max-h-[calc(100vh-20rem)] overflow-y-auto pr-1">
+                    {EXAMEN_FISICO_REGIONAL_ITEMS.map(({ key, label, num }) => {
+                      const ef = atencionEmergenciaData.examenFisico || {};
+                      const esNormal = ef[`${key}_normal`] !== false;
+                      return (
+                        <div key={key} className="border-b border-gray-100 pb-3 last:border-0">
+                          <label className={`flex items-center gap-2 cursor-pointer ${esNormal ? 'text-gray-500' : 'text-gray-800'}`}>
+                            <input
+                              type="checkbox"
+                              checked={esNormal}
+                              onChange={(e) => handleNestedChange('examenFisico', `${key}_normal`, e.target.checked)}
+                              disabled={readOnly}
+                              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                              title={esNormal ? 'Normal (marcado)' : 'Marcar como Normal para ocultar hallazgo'}
+                            />
+                            <span className="text-sm font-medium">{num}. {label}</span>
+                            {esNormal && <span className="text-xs text-gray-400">Normal</span>}
+                            {!esNormal && <span className="text-xs text-amber-600">Patológico — describa hallazgo abajo</span>}
+                          </label>
+                          {!esNormal && (
+                            <div className="mt-2 ml-6">
+                              <textarea
+                                id={`examenFisico-${key}`}
+                                value={ef[key] || ''}
+                                onChange={(e) => handleNestedChange('examenFisico', key, e.target.value)}
+                                disabled={readOnly}
+                                placeholder="Descripción del hallazgo..."
+                                className="w-full text-sm border border-gray-200 rounded-md py-1.5 px-2 text-gray-700 focus:ring-1 focus:ring-amber-400 focus:border-amber-400"
+                                rows={2}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              ))}
-            </div>
-          )}
 
-          {activeTab === 'examenTrauma' && (
-            <div>
-              <h2 className="text-xl font-semibold mb-4 text-gray-800">Examen Traumatológico</h2>
-              <div className="mb-4">
-                <label htmlFor="examenFisicoTraumaCritico" className="block text-gray-700 text-sm font-bold mb-2">Descripción:</label>
-                <textarea
-                  id="examenFisicoTraumaCritico"
-                  name="examenFisicoTraumaCritico"
-                  value={atencionEmergenciaData.examenFisicoTraumaCritico}
-                  onChange={handleChange}
-                  className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  rows="5"
-                ></textarea>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'embarazoParto' && (
-            <div>
-              <h2 className="text-xl font-semibold mb-4 text-gray-800">Obstetricia</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                {/* Sección I: Examen de Trauma / Crítico — 40% */}
                 <div>
-                  <label htmlFor="numeroGestas" className="block text-gray-700 text-sm font-bold mb-2">Número de Gestas:</label>
-                  <input
-                    type="number"
-                    id="numeroGestas"
-                    name="numeroGestas"
-                    value={atencionEmergenciaData.embarazoParto.numeroGestas || ''}
-                    onChange={(e) => handleNestedChange('embarazoParto', 'numeroGestas', e.target.value === '' ? null : parseInt(e.target.value, 10))}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="numeroPartos" className="block text-gray-700 text-sm font-bold mb-2">Número de Partos:</label>
-                  <input
-                    type="number"
-                    id="numeroPartos"
-                    name="numeroPartos"
-                    value={atencionEmergenciaData.embarazoParto.numeroPartos || ''}
-                    onChange={(e) => handleNestedChange('embarazoParto', 'numeroPartos', e.target.value === '' ? null : parseInt(e.target.value, 10))}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="numeroAbortos" className="block text-gray-700 text-sm font-bold mb-2">Número de Abortos:</label>
-                  <input
-                    type="number"
-                    id="numeroAbortos"
-                    name="numeroAbortos"
-                    value={atencionEmergenciaData.embarazoParto.numeroAbortos || ''}
-                    onChange={(e) => handleNestedChange('embarazoParto', 'numeroAbortos', e.target.value === '' ? null : parseInt(e.target.value, 10))}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="numeroCesareas" className="block text-gray-700 text-sm font-bold mb-2">Número de Cesáreas:</label>
-                  <input
-                    type="number"
-                    id="numeroCesareas"
-                    name="numeroCesareas"
-                    value={atencionEmergenciaData.embarazoParto.numeroCesareas || ''}
-                    onChange={(e) => handleNestedChange('embarazoParto', 'numeroCesareas', e.target.value === '' ? null : parseInt(e.target.value, 10))}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="fum" className="block text-gray-700 text-sm font-bold mb-2">FUM:</label>
-                  <input
-                    type="date"
-                    id="fum"
-                    name="fum"
-                    value={atencionEmergenciaData.embarazoParto.fum}
-                    onChange={(e) => handleNestedChange('embarazoParto', 'fum', e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="semanasGestacion" className="block text-gray-700 text-sm font-bold mb-2">Semanas de Gestación:</label>
-                  <input
-                    type="number"
-                    id="semanasGestacion"
-                    name="semanasGestacion"
-                    value={atencionEmergenciaData.embarazoParto.semanasGestacion || ''}
-                    onChange={(e) => handleNestedChange('embarazoParto', 'semanasGestacion', e.target.value === '' ? null : parseInt(e.target.value, 10))}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                </div>
-                <div className="col-span-full">
-                  <label className="block text-gray-700 text-sm font-bold mb-2">Movimiento Fetal:</label>
-                  <input
-                    type="checkbox"
-                    name="movimientoFetal"
-                    checked={atencionEmergenciaData.embarazoParto.movimientoFetal}
-                    onChange={(e) => handleNestedChange('embarazoParto', 'movimientoFetal', e.target.checked)}
-                    className="mr-2 leading-tight"
-                  />
-                  <span className="text-sm">Sí</span>
-                </div>
-                <div>
-                  <label htmlFor="frecuenciaCardiacaFetal" className="block text-gray-700 text-sm font-bold mb-2">Frecuencia Cardíaca Fetal:</label>
-                  <input
-                    type="number"
-                    id="frecuenciaCardiacaFetal"
-                    name="frecuenciaCardiacaFetal"
-                    value={atencionEmergenciaData.embarazoParto.frecuenciaCardiacaFetal || ''}
-                    onChange={(e) => handleNestedChange('embarazoParto', 'frecuenciaCardiacaFetal', e.target.value === '' ? null : parseInt(e.target.value, 10))}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                </div>
-                <div className="col-span-full">
-                  <label className="block text-gray-700 text-sm font-bold mb-2">Ruptura de Membranas:</label>
-                  <input
-                    type="checkbox"
-                    name="rupturaMembranas"
-                    checked={atencionEmergenciaData.embarazoParto.rupturaMembranas}
-                    onChange={(e) => handleNestedChange('embarazoParto', 'rupturaMembranas', e.target.checked)}
-                    className="mr-2 leading-tight"
-                  />
-                  <span className="text-sm">Sí</span>
-                </div>
-                <div>
-                  <label htmlFor="tiempo" className="block text-gray-700 text-sm font-bold mb-2">Tiempo:</label>
-                  <input
-                    type="text"
-                    id="tiempo"
-                    name="tiempo"
-                    value={atencionEmergenciaData.embarazoParto.tiempo}
-                    onChange={(e) => handleNestedChange('embarazoParto', 'tiempo', e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="afu" className="block text-gray-700 text-sm font-bold mb-2">AFU:</label>
-                  <input
-                    type="text"
-                    id="afu"
-                    name="afu"
-                    value={atencionEmergenciaData.embarazoParto.afu}
-                    onChange={(e) => handleNestedChange('embarazoParto', 'afu', e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="presentacion" className="block text-gray-700 text-sm font-bold mb-2">Presentación:</label>
-                  <input
-                    type="text"
-                    id="presentacion"
-                    name="presentacion"
-                    value={atencionEmergenciaData.embarazoParto.presentacion}
-                    onChange={(e) => handleNestedChange('embarazoParto', 'presentacion', e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="dilatacion" className="block text-gray-700 text-sm font-bold mb-2">Dilatación:</label>
-                  <input
-                    type="text"
-                    id="dilatacion"
-                    name="dilatacion"
-                    value={atencionEmergenciaData.embarazoParto.dilatacion}
-                    onChange={(e) => handleNestedChange('embarazoParto', 'dilatacion', e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="borramiento" className="block text-gray-700 text-sm font-bold mb-2">Borramiento:</label>
-                  <input
-                    type="text"
-                    id="borramiento"
-                    name="borramiento"
-                    value={atencionEmergenciaData.embarazoParto.borramiento}
-                    onChange={(e) => handleNestedChange('embarazoParto', 'borramiento', e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="plano" className="block text-gray-700 text-sm font-bold mb-2">Plano:</label>
-                  <input
-                    type="text"
-                    id="plano"
-                    name="plano"
-                    value={atencionEmergenciaData.embarazoParto.plano}
-                    onChange={(e) => handleNestedChange('embarazoParto', 'plano', e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                </div>
-                <div className="col-span-full">
-                  <label className="block text-gray-700 text-sm font-bold mb-2">Pelvis Viable:</label>
-                  <input
-                    type="checkbox"
-                    name="pelvisViable"
-                    checked={atencionEmergenciaData.embarazoParto.pelvisViable}
-                    onChange={(e) => handleNestedChange('embarazoParto', 'pelvisViable', e.target.checked)}
-                    className="mr-2 leading-tight"
-                  />
-                  <span className="text-sm">Sí</span>
-                </div>
-                <div className="col-span-full">
-                  <label className="block text-gray-700 text-sm font-bold mb-2">Sangrado Vaginal:</label>
-                  <input
-                    type="checkbox"
-                    name="sangradoVaginal"
-                    checked={atencionEmergenciaData.embarazoParto.sangradoVaginal}
-                    onChange={(e) => handleNestedChange('embarazoParto', 'sangradoVaginal', e.target.checked)}
-                    className="mr-2 leading-tight"
-                  />
-                  <span className="text-sm">Sí</span>
-                </div>
-                <div className="col-span-full">
-                  <label className="block text-gray-700 text-sm font-bold mb-2">Contracciones:</label>
-                  <input
-                    type="checkbox"
-                    name="contracciones"
-                    checked={atencionEmergenciaData.embarazoParto.contracciones}
-                    onChange={(e) => handleNestedChange('embarazoParto', 'contracciones', e.target.checked)}
-                    className="mr-2 leading-tight"
-                  />
-                  <span className="text-sm">Sí</span>
-                </div>
-                <div>
-                  <label htmlFor="scoreMama" className="block text-gray-700 text-sm font-bold mb-2">Score Mama:</label>
-                  <input
-                    type="number"
-                    id="scoreMama"
-                    name="scoreMama"
-                    value={atencionEmergenciaData.embarazoParto.scoreMama || ''}
-                    onChange={(e) => handleNestedChange('embarazoParto', 'scoreMama', e.target.value === '' ? null : parseInt(e.target.value, 10))}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
+                  <h2 className="text-lg font-semibold text-gray-800 mb-3">I. Examen Físico de Trauma / Crítico</h2>
+                  {(() => {
+                    const d = atencionEmergenciaData.tipoAccidenteViolenciaIntoxicacion || {};
+                    const seleccion = Array.isArray(d.seleccion) ? d.seleccion : [];
+                    const hayEventoTraumatico = seleccion.length > 0;
+                    return (
+                      <div className={hayEventoTraumatico ? 'rounded-lg border-2 border-amber-300 bg-amber-50/30 p-3' : ''}>
+                        <textarea
+                          id="examenFisicoTraumaCritico"
+                          name="examenFisicoTraumaCritico"
+                          value={atencionEmergenciaData.examenFisicoTraumaCritico || ''}
+                          onChange={handleChange}
+                          disabled={readOnly}
+                          placeholder="Describa hallazgos según esquema ABCDE (Vía aérea, Respiración, Circulación, Déficit neurológico, Exposición). ATLS / estándar internacional."
+                          className="w-full min-h-[280px] text-sm border border-gray-200 rounded-md py-2 px-3 text-gray-700 focus:ring-1 focus:ring-blue-400 focus:border-blue-400 disabled:bg-gray-50 disabled:cursor-not-allowed"
+                          rows={12}
+                        />
+                        {hayEventoTraumatico && (
+                          <p className="mt-2 text-xs text-amber-700">Priorice el llenado de esta sección por evento traumático registrado.</p>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
           )}
 
-          {activeTab === 'examenesComplementarios' && (
-            <div>
-              <h2 className="text-xl font-semibold mb-4 text-gray-800">Estudios Complementarios</h2>
-              {atencionEmergenciaData.examenesComplementarios.map((examen, index) => (
-                <div key={index} className="flex items-center mb-2">
-                  <input
-                    type="text"
-                    value={examen}
-                    onChange={(e) => handleArrayChange('examenesComplementarios', index, null, e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline mr-2"
-                  />
+          {activeTab === 'embarazoParto' && (() => {
+            const paciente = admisionData?.Paciente;
+            const sexo = (paciente?.sexo || paciente?.Sexo?.nombre || '').trim();
+            const esMasculino = /^(masculino|hombre)$/i.test(sexo);
+            const edadAnios = paciente?.fecha_nacimiento ? differenceInYears(new Date(), parseISO(paciente.fecha_nacimiento)) : null;
+            const esMEF = !esMasculino && edadAnios != null && edadAnios >= 10 && edadAnios <= 49;
+            const ep = atencionEmergenciaData.embarazoParto || {};
+            const estadoGestacion = ep.estadoGestacion || '';
+            const embarazoVigente = estadoGestacion === 'SI' || estadoGestacion === 'SOSPECHA';
+            const fumVal = ep.fum || '';
+            const semanasAuto = fumVal ? differenceInWeeks(new Date(), parseISO(fumVal)) : null;
+            const semanasGestacion = ep.semanasGestacion != null ? ep.semanasGestacion : semanasAuto;
+            const deshabilitarSeccion = readOnly || esMasculino;
+            const sv = signosVitalesData;
+            const paRaw = sv?.presion_arterial;
+            const pa = paRaw != null ? (typeof paRaw === 'number' ? paRaw : (() => { const s = String(paRaw).split('/')[0]; const n = parseFloat(s); return isNaN(n) ? null : n; })()) : null;
+            const fc = sv?.frecuencia_cardiaca != null ? Number(sv.frecuencia_cardiaca) : null;
+            const fr = sv?.frecuencia_respiratoria != null ? Number(sv.frecuencia_respiratoria) : null;
+            const temp = sv?.temperatura != null ? Number(sv.temperatura) : null;
+            const spo2 = sv?.saturacion_oxigeno != null ? Number(sv.saturacion_oxigeno) : null;
+            const glasgow = (atencionEmergenciaData.examenFisico?.glasgow_ocular ?? null) != null && (atencionEmergenciaData.examenFisico?.glasgow_verbal ?? null) != null && (atencionEmergenciaData.examenFisico?.glasgow_motora ?? null) != null
+              ? (atencionEmergenciaData.examenFisico.glasgow_ocular || 0) + (atencionEmergenciaData.examenFisico.glasgow_verbal || 0) + (atencionEmergenciaData.examenFisico.glasgow_motora || 0)
+              : null;
+            const puntajeMama = embarazoVigente ? [
+              pa != null && (pa < 90 || pa > 160) ? 1 : 0,
+              fc != null && (fc < 60 || fc > 120) ? 1 : 0,
+              fr != null && (fr < 10 || fr > 30) ? 1 : 0,
+              temp != null && (temp < 36 || temp > 38) ? 1 : 0,
+              spo2 != null && spo2 < 95 ? 1 : 0,
+              glasgow != null && glasgow < 15 ? 1 : 0
+            ].reduce((a, b) => a + b, 0) : null;
+            const scoreCritico = puntajeMama != null && puntajeMama >= 2;
+
+            return (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                <h2 className="text-lg font-semibold text-gray-800 mb-4">Obstetricia (Sección J)</h2>
+
+                {esMasculino && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800 text-sm mb-6">
+                    Esta sección no aplica para el sexo del paciente.
+                  </div>
+                )}
+
+                {!esMasculino && (
+                  <>
+                    {esMEF && !estadoGestacion && (
+                      <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-amber-800 text-sm mb-4">
+                        <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-500" />
+                        Paciente en edad fértil (10–49 años): indique si existe embarazo confirmado o sospecha.
+                      </div>
+                    )}
+
+                    <div className="space-y-6">
+                      <section>
+                        <h3 className="text-sm font-semibold text-gray-700 mb-3">Antecedentes obstétricos</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                          {[
+                            { key: 'numeroGestas', label: 'Gestas', id: 'numeroGestas' },
+                            { key: 'numeroPartos', label: 'Partos', id: 'numeroPartos' },
+                            { key: 'numeroAbortos', label: 'Abortos', id: 'numeroAbortos' },
+                            { key: 'numeroCesareas', label: 'Cesáreas', id: 'numeroCesareas' }
+                          ].map(({ key, label, id }) => (
+                            <div key={key}>
+                              <label htmlFor={id} className="block text-gray-600 text-sm font-medium mb-1">{label}</label>
+                              <input type="number" id={id} min={0} value={ep[key] ?? ''} disabled={deshabilitarSeccion}
+                                onChange={(e) => handleNestedChange('embarazoParto', key, e.target.value === '' ? null : parseInt(e.target.value, 10))}
+                                className="w-full border border-gray-200 rounded-lg py-2 px-3 text-gray-700 shadow-sm focus:ring-1 focus:ring-blue-400 focus:border-blue-400 disabled:bg-gray-50 disabled:cursor-not-allowed"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+
+                      <section>
+                        <h3 className="text-sm font-semibold text-gray-700 mb-2">¿Embarazo confirmado o sospecha?</h3>
+                        <div className="flex flex-wrap gap-2">
+                          {['SI', 'NO', 'SOSPECHA'].map((v) => (
+                            <button key={v} type="button" disabled={deshabilitarSeccion}
+                              onClick={() => handleNestedChange('embarazoParto', 'estadoGestacion', v)}
+                              className={`py-2 px-4 rounded-lg text-sm font-medium border transition ${estadoGestacion === v
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'} disabled:opacity-50 disabled:cursor-not-allowed`}
+                            >
+                              {v === 'SI' ? 'Sí' : v === 'NO' ? 'No' : 'Sospecha'}
+                            </button>
+                          ))}
+                        </div>
+                      </section>
+
+                      {embarazoVigente && (
+                        <>
+                          <section>
+                            <h3 className="text-sm font-semibold text-gray-700 mb-3">Embarazo actual</h3>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              <div>
+                                <label htmlFor="fum" className="block text-gray-600 text-sm font-medium mb-1">FUM</label>
+                                <input type="date" id="fum" value={fumVal} disabled={deshabilitarSeccion}
+                                  onChange={(e) => handleNestedChange('embarazoParto', 'fum', e.target.value)}
+                                  className="w-full border border-gray-200 rounded-lg py-2 px-3 text-gray-700 shadow-sm focus:ring-1 focus:ring-blue-400 disabled:bg-gray-50 disabled:cursor-not-allowed"
+                                />
+                              </div>
+                              <div>
+                                <label htmlFor="semanasGestacion" className="block text-gray-600 text-sm font-medium mb-1">Semanas de gestación</label>
+                                <input type="number" id="semanasGestacion" min={0} max={44} value={semanasGestacion ?? ''} disabled={deshabilitarSeccion}
+                                  onChange={(e) => handleNestedChange('embarazoParto', 'semanasGestacion', e.target.value === '' ? null : parseInt(e.target.value, 10))}
+                                  className="w-full border border-gray-200 rounded-lg py-2 px-3 text-gray-700 shadow-sm focus:ring-1 focus:ring-blue-400 disabled:bg-gray-50 disabled:cursor-not-allowed"
+                                  placeholder={semanasAuto != null ? `Auto: ${semanasAuto}` : ''}
+                                />
+                              </div>
+                              <div>
+                                <label htmlFor="frecuenciaCardiacaFetal" className="block text-gray-600 text-sm font-medium mb-1">FCF (lpm)</label>
+                                <input type="number" id="frecuenciaCardiacaFetal" value={ep.frecuenciaCardiacaFetal ?? ''} disabled={deshabilitarSeccion}
+                                  onChange={(e) => handleNestedChange('embarazoParto', 'frecuenciaCardiacaFetal', e.target.value === '' ? null : parseInt(e.target.value, 10))}
+                                  className="w-full border border-gray-200 rounded-lg py-2 px-3 text-gray-700 shadow-sm focus:ring-1 focus:ring-blue-400 disabled:bg-gray-50 disabled:cursor-not-allowed"
+                                />
+                              </div>
+                              <div className="flex items-center gap-2 sm:col-span-2">
+                                <input type="checkbox" id="movimientoFetal" checked={!!ep.movimientoFetal} disabled={deshabilitarSeccion}
+                                  onChange={(e) => handleNestedChange('embarazoParto', 'movimientoFetal', e.target.checked)}
+                                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                />
+                                <label htmlFor="movimientoFetal" className="text-sm text-gray-700">Movimiento fetal (Sí)</label>
+                              </div>
+                            </div>
+                          </section>
+
+                          <section>
+                            <h3 className="text-sm font-semibold text-gray-700 mb-3">Examen físico obstétrico</h3>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                              {[
+                                { key: 'afu', label: 'AFU (cm)' },
+                                { key: 'dilatacion', label: 'Dilatación' },
+                                { key: 'borramiento', label: 'Borramiento' },
+                                { key: 'plano', label: 'Plano' },
+                                { key: 'presentacion', label: 'Presentación' },
+                                { key: 'tiempo', label: 'Tiempo (ruptura membranas)' }
+                              ].map(({ key, label }) => (
+                                <div key={key}>
+                                  <label className="block text-gray-600 text-sm font-medium mb-1">{label}</label>
+                                  <input type="text" value={ep[key] ?? ''} disabled={deshabilitarSeccion}
+                                    onChange={(e) => handleNestedChange('embarazoParto', key, e.target.value)}
+                                    className="w-full border border-gray-200 rounded-lg py-2 px-3 text-gray-700 shadow-sm focus:ring-1 focus:ring-blue-400 disabled:bg-gray-50 disabled:cursor-not-allowed"
+                                  />
+                                </div>
+                              ))}
+                              <div className="flex flex-wrap gap-4 sm:col-span-2 lg:col-span-3">
+                                <label className="inline-flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={!!ep.pelvisViable} disabled={deshabilitarSeccion} onChange={(e) => handleNestedChange('embarazoParto', 'pelvisViable', e.target.checked)} className="rounded border-gray-300 text-blue-600" /> Pelvis viable</label>
+                                <label className="inline-flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={!!ep.sangradoVaginal} disabled={deshabilitarSeccion} onChange={(e) => handleNestedChange('embarazoParto', 'sangradoVaginal', e.target.checked)} className="rounded border-gray-300 text-blue-600" /> Sangrado vaginal</label>
+                                <label className="inline-flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={!!ep.contracciones} disabled={deshabilitarSeccion} onChange={(e) => handleNestedChange('embarazoParto', 'contracciones', e.target.checked)} className="rounded border-gray-300 text-blue-600" /> Contracciones</label>
+                                <label className="inline-flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={!!ep.rupturaMembranas} disabled={deshabilitarSeccion} onChange={(e) => handleNestedChange('embarazoParto', 'rupturaMembranas', e.target.checked)} className="rounded border-gray-300 text-blue-600" /> Ruptura de membranas</label>
+                              </div>
+                            </div>
+                          </section>
+
+                          <section>
+                            <div className="rounded-xl border border-gray-200 bg-gray-50/50 p-4 shadow-sm">
+                              <h3 className="text-sm font-semibold text-gray-800 mb-2">Score MAMÁ (desde Sección G)</h3>
+                              <p className="text-xs text-gray-600 mb-3">Calculado con PA, FC, FR, Temp, SpO₂ y Glasgow.</p>
+                              <div className="flex items-baseline gap-2">
+                                <span className="text-2xl font-bold text-gray-800">{puntajeMama ?? '—'}</span>
+                                <span className="text-sm text-gray-500">puntos</span>
+                              </div>
+                              {scoreCritico && (
+                                <div className="mt-3 rounded-lg border-2 border-red-400 bg-red-50 p-3 text-red-800 text-sm font-semibold">
+                                  Puntaje Crítico: Evaluar activación de Claves Obstétricas (Roja/Azul/Amarilla).
+                                </div>
+                              )}
+                            </div>
+                          </section>
+                        </>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })()}
+
+          {activeTab === 'examenesComplementarios' && (() => {
+            const ec = atencionEmergenciaData.examenesComplementarios || DEFAULT_EXAMENES_K();
+            const noAplica = !!ec.examenes_no_aplica;
+            const items = ec.items || Object.fromEntries([...Array(16)].map((_, i) => [i + 1, false]));
+            const observaciones = (ec.observaciones ?? '').toString();
+            const deshabilitarK = readOnly || noAplica;
+            const labCount = [1,2,3,4,5,6,7].filter(i => items[i]).length;
+            const imagenCount = [8,9,10,11,12,13,14].filter(i => items[i]).length;
+            const interconsultaCount = items[15] ? 1 : 0;
+            const item15o16 = !!(items[15] || items[16]);
+            const observacionesRequerida = item15o16;
+            const placeholderObservaciones = items[15] && !items[16]
+              ? 'Justifique el motivo de la interconsulta y especialidad o servicio de referencia.'
+              : items[16] && !items[15]
+                ? 'Describa los estudios u otros procedimientos solicitados y su justificación clínica.'
+                : (items[15] && items[16])
+                  ? 'Justifique la interconsulta y describa los demás estudios u otros procedimientos.'
+                  : 'Indique hallazgos, indicación clínica o justificación de los estudios solicitados.';
+            return (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                <div className="flex items-start justify-between gap-4 mb-4">
+                  <h2 className="text-lg font-semibold text-gray-800 uppercase tracking-wide" style={{ fontFamily: "'Inter','Roboto',sans-serif" }}>
+                    K. EXÁMENES COMPLEMENTARIOS
+                  </h2>
                   <button
                     type="button"
-                    onClick={() => removeArrayItem('examenesComplementarios', index)}
-                    className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded"
+                    onClick={() => setNoAplicaEstudiosK()}
+                    disabled={readOnly}
+                    className={`shrink-0 py-2 px-4 rounded-lg text-sm font-medium border transition ${noAplica
+                      ? 'bg-amber-100 text-amber-800 border-amber-300 cursor-default'
+                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
                   >
-                    Eliminar
+                    No Aplica
                   </button>
                 </div>
-              ))}
-              <button
-                type="button"
-                onClick={() => addArrayItem('examenesComplementarios', '')}
-                className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded"
-              >
-                Agregar Examen
-              </button>
-            </div>
-          )}
+                {noAplica && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800 text-sm mb-4">
+                    No se solicitan exámenes complementarios para esta atención.
+                  </div>
+                )}
+                {!noAplica && (
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-4">
+                      {ITEMS_SECCION_K.map(({ id, label }) => (
+                        <label
+                          key={id}
+                          className={`flex items-center gap-2 py-2 px-3 rounded-lg border cursor-pointer transition ${items[id] ? 'bg-blue-50 border-blue-200' : 'bg-gray-50/50 border-gray-200 hover:border-gray-300'}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={!!items[id]}
+                            onChange={(e) => setExamenItemK(id, e.target.checked)}
+                            disabled={deshabilitarK}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="text-sm font-medium text-gray-700">{label}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <div className="mb-4 py-2 px-3 rounded-lg bg-gray-50 border border-gray-100 text-sm text-gray-700">
+                      Solicitudes actuales: <strong>{labCount}</strong> Laboratorio, <strong>{imagenCount}</strong> Imagen, <strong>{interconsultaCount}</strong> Interconsulta.
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">OBSERVACIONES:</label>
+                      <textarea
+                        value={observaciones}
+                        onChange={(e) => handleNestedChange('examenesComplementarios', 'observaciones', e.target.value)}
+                        placeholder={placeholderObservaciones}
+                        disabled={deshabilitarK}
+                        rows={4}
+                        className={`w-full border rounded-lg py-2 px-3 text-gray-700 shadow-sm focus:ring-1 focus:ring-blue-400 focus:border-blue-400 placeholder-gray-400 disabled:bg-gray-50 disabled:cursor-not-allowed ${observacionesRequerida && !observaciones.trim() ? 'border-red-500 focus:ring-red-400 focus:border-red-400' : 'border-gray-200'}`}
+                      />
+                      {observacionesRequerida && !observaciones.trim() && (
+                        <p className="mt-1 text-xs text-red-600">Obligatorio cuando se marca Interconsulta (15) u Otros (16).</p>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })()}
 
           {activeTab === 'diagnosticos' && (
             <div>
-              <h2 className="text-xl font-semibold mb-4 text-gray-800">Diagnósticos</h2>
-              <h3 className="text-lg font-semibold mb-2">Diagnósticos Presuntivos</h3>
-              {atencionEmergenciaData.diagnosticosPresuntivos.map((diag, index) => (
-                <div key={index} className="grid grid-cols-3 gap-2 mb-2">
-                  <input
-                    type="text"
-                    placeholder="Código CIE"
-                    value={diag.cie}
-                    onChange={(e) => handleArrayChange('diagnosticosPresuntivos', index, 'cie', e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Descripción"
-                    value={diag.descripcion}
-                    onChange={(e) => handleArrayChange('diagnosticosPresuntivos', index, 'descripcion', e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline col-span-2"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeArrayItem('diagnosticosPresuntivos', index)}
-                    className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded col-span-3"
-                  >
-                    Eliminar
-                  </button>
+              {(atencionData?.id ?? atencionIdFromSave ?? existingAtencionIdRef.current) ? (
+                <DiagnosticosCIE10
+                  atencionId={atencionData?.id ?? atencionIdFromSave ?? existingAtencionIdRef.current}
+                  readOnly={readOnly}
+                />
+              ) : (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-6 text-amber-800">
+                  <p className="font-medium">Guarde la atención primero</p>
+                  <p className="mt-1 text-sm text-amber-700">
+                    Escriba algo en el formulario (por ejemplo en Atención Inicial) y espere el autoguardado, o guarde la atención para poder agregar y gestionar diagnósticos CIE-10 desde esta pestaña.
+                  </p>
                 </div>
-              ))}
-              <button
-                type="button"
-                onClick={() => addArrayItem('diagnosticosPresuntivos', { cie: '', descripcion: '' })}
-                className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded mb-4"
-              >
-                Agregar Diagnóstico Presuntivo
-              </button>
-
-              <h3 className="text-lg font-semibold mb-2">Diagnósticos Definitivos</h3>
-              {atencionEmergenciaData.diagnosticosDefinitivos.map((diag, index) => (
-                <div key={index} className="grid grid-cols-3 gap-2 mb-2">
-                  <input
-                    type="text"
-                    placeholder="Código CIE"
-                    value={diag.cie}
-                    onChange={(e) => handleArrayChange('diagnosticosDefinitivos', index, 'cie', e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Descripción"
-                    value={diag.descripcion}
-                    onChange={(e) => handleArrayChange('diagnosticosDefinitivos', index, 'descripcion', e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline col-span-2"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeArrayItem('diagnosticosDefinitivos', index)}
-                    className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded col-span-3"
-                  >
-                    Eliminar
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={() => addArrayItem('diagnosticosDefinitivos', { cie: '', descripcion: '' })}
-                className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded"
-              >
-                Agregar Diagnóstico Definitivo
-              </button>
+              )}
             </div>
           )}
 
@@ -1894,6 +2242,47 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
         </div>
         </fieldset>
       </form>
+
+      {/* Modal MEF: Paciente en edad fértil sin estado gestación en Sección J */}
+      {showModalMefObstetricia && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowModalMefObstetricia(false)}>
+          <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6 max-w-md mx-4" onClick={e => e.stopPropagation()}>
+            <p className="text-gray-800 font-medium mb-4">
+              Paciente en edad fértil: Por favor confirme si existe embarazo o sospecha para completar la Sección J.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setShowModalMefObstetricia(false)}
+                className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium">
+                Cerrar
+              </button>
+              <button type="button" onClick={() => { setShowModalMefObstetricia(false); setActiveTab('embarazoParto'); }}
+                className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium">
+                Ir a Obstetricia
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showModalObservacionesEstudios && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowModalObservacionesEstudios(false)}>
+          <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6 max-w-md mx-4" onClick={e => e.stopPropagation()}>
+            <p className="text-gray-800 font-medium mb-4">
+              Por favor, ingrese la justificación clínica o hallazgos para los estudios solicitados.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setShowModalObservacionesEstudios(false)}
+                className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium">
+                Cerrar
+              </button>
+              <button type="button" onClick={() => { setShowModalObservacionesEstudios(false); setActiveTab('examenesComplementarios'); }}
+                className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium">
+                Ir a Estudios
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -18,7 +18,7 @@ const DetalleDiagnosticos = sequelize.define('DetalleDiagnosticos', {
     field: 'codigo_cie10'
   },
   tipoDiagnostico: {
-    type: DataTypes.ENUM('PRESUNTIVO', 'DEFINITIVO', 'NO APLICA'),
+    type: DataTypes.ENUM('PRESUNTIVO', 'DEFINITIVO', 'NO APLICA', 'ESTADISTICO'),
     allowNull: false,
     field: 'tipo_diagnostico'
   },
@@ -30,6 +30,22 @@ const DetalleDiagnosticos = sequelize.define('DetalleDiagnosticos', {
     type: DataTypes.INTEGER,
     allowNull: true,
     defaultValue: 1
+  },
+  padreId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    field: 'padre_id'
+  },
+  esCausaExterna: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+    field: 'es_causa_externa'
+  },
+  usuarioId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    field: 'usuario_id'
   }
 }, {
   timestamps: true,

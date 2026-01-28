@@ -148,13 +148,23 @@ async function generarPDFFormulario008(atencionId) {
     doc.text(`Motivo de Atención: ${atencion.motivoAtencion || 'N/A'}`);
     doc.moveDown();
 
-    // Diagnósticos
+    // Diagnósticos — Filtro Formulario 008: solo morbilidad, máx. 3 Presuntivos (L) y 3 Definitivos (M).
+    // Excluir: códigos Z (NO APLICA), causas externas (V–Y) y códigos con padre_id.
+    const esCodigoZPdf = (cod) => String(cod || '').toUpperCase().startsWith('Z');
+    const esCausaExternaPdf = (d) => /^[VWXY]/.test(String(d.codigoCIE10 || '').toUpperCase()) || d.padreId != null;
+    const morbilidad = diagnosticos.filter(d => !esCodigoZPdf(d.codigoCIE10) && !esCausaExternaPdf(d));
+    const presuntivosPdf = morbilidad.filter(d => d.tipoDiagnostico === 'PRESUNTIVO').slice(0, 3);
+    const definitivosPdf = morbilidad.filter(d => d.tipoDiagnostico === 'DEFINITIVO').slice(0, 3);
+    const diagnosticosParaPdf = [...presuntivosPdf, ...definitivosPdf];
+
     doc.fontSize(12).text('DIAGNÓSTICOS', { underline: true });
     doc.fontSize(10);
-    diagnosticos.forEach((diag, index) => {
-      doc.text(`${index + 1}. CIE-10: ${diag.CIE10.codigo} - ${diag.CIE10.descripcion}`);
-      doc.text(`   Tipo: ${diag.tipoDiagnostico}`);
-      if (diag.descripcion) {
+    diagnosticosParaPdf.forEach((diag, index) => {
+      const cod = diag.CIE10?.codigo || diag.codigoCIE10 || '';
+      const desc = diag.CIE10?.descripcion || diag.descripcion || '';
+      doc.text(`${index + 1}. CIE-10: ${cod} - ${desc}`);
+      doc.text(`   Condición: ${diag.tipoDiagnostico}`);
+      if (diag.descripcion && diag.descripcion !== desc) {
         doc.text(`   Descripción: ${diag.descripcion}`);
       }
       doc.moveDown(0.5);

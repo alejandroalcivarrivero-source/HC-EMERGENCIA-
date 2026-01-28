@@ -2,6 +2,8 @@ const { Op } = require('sequelize');
 const AtencionEmergencia = require('../models/atencionEmergencia');
 const DetalleDiagnosticos = require('../models/detalleDiagnosticos');
 const CatCIE10 = require('../models/catCie10');
+const Pacientes = require('../models/pacientes');
+const CatSexos = require('../models/cat_sexos');
 
 /**
  * Obtener diagnósticos de una atención
@@ -29,12 +31,13 @@ exports.getDiagnosticos = async (req, res) => {
 
 /**
  * Agregar un diagnóstico
- * Aplica la regla de la letra Z: si el código empieza con Z, tipo_diagnostico = 'NO APLICA'
+ * Regla Z: código inicia con Z → ESTADISTICO (no ocupa slots 008).
+ * Regla S-T: código inicia con S o T → requiereCausaExterna (segundo dx V00-Y84).
  */
 exports.agregarDiagnostico = async (req, res) => {
   try {
     const { atencionId } = req.params;
-    const { codigoCIE10, descripcion, tipoDiagnostico } = req.body;
+    const { codigoCIE10, descripcion, tipoDiagnostico, esCausaExterna, padreId } = req.body;
 
     // Verificar que la atención existe
     const atencion = await AtencionEmergencia.findByPk(atencionId);
@@ -48,11 +51,14 @@ exports.agregarDiagnostico = async (req, res) => {
       return res.status(404).json({ message: 'Código CIE-10 no encontrado.' });
     }
 
-    // Aplicar regla de la letra Z
+    const codigo = (codigoCIE10 || '').trim().toUpperCase();
+    // Regla Z: Administrativos/Certificados — condición NO APLICA, no ocupa slots L/M
     let tipoDiagnosticoFinal = tipoDiagnostico;
-    if (codigoCIE10.toUpperCase().startsWith('Z')) {
+    if (codigo.startsWith('Z')) {
       tipoDiagnosticoFinal = 'NO APLICA';
     }
+    // Regla S-T: trauma/causa externa — requiere segundo dx en V00-V99, W00-X59, X60-Y09, Y35-Y84
+    const requiereCausaExterna = codigo.startsWith('S') || codigo.startsWith('T');
 
     // Obtener el siguiente orden
     const ultimoDiagnostico = await DetalleDiagnosticos.findOne({
@@ -66,7 +72,10 @@ exports.agregarDiagnostico = async (req, res) => {
       codigoCIE10,
       tipoDiagnostico: tipoDiagnosticoFinal,
       descripcion: descripcion || cie10.descripcion,
-      orden: siguienteOrden
+      orden: siguienteOrden,
+      padreId: padreId ? parseInt(padreId, 10) : null,
+      esCausaExterna: !!esCausaExterna,
+      usuarioId: req.userId || null
     });
 
     const diagnosticoCompleto = await DetalleDiagnosticos.findByPk(diagnostico.id, {
@@ -76,8 +85,8 @@ exports.agregarDiagnostico = async (req, res) => {
         attributes: ['codigo', 'descripcion']
       }]
     });
-
-    res.status(201).json(diagnosticoCompleto);
+    const payload = diagnosticoCompleto.toJSON ? diagnosticoCompleto.toJSON() : diagnosticoCompleto;
+    res.status(201).json({ ...payload, requiereCausaExterna });
   } catch (error) {
     console.error('Error al agregar diagnóstico:', error);
     res.status(500).json({ message: 'Error al agregar diagnóstico.', error: error.message });
@@ -86,29 +95,30 @@ exports.agregarDiagnostico = async (req, res) => {
 
 /**
  * Actualizar un diagnóstico
+ * Regla Z → ESTADISTICO; acepta esCausaExterna para códigos V-W-X-Y.
  */
 exports.actualizarDiagnostico = async (req, res) => {
   try {
     const { diagnosticoId } = req.params;
-    const { codigoCIE10, descripcion, tipoDiagnostico } = req.body;
+    const { codigoCIE10, descripcion, tipoDiagnostico, esCausaExterna, padreId } = req.body;
 
     const diagnostico = await DetalleDiagnosticos.findByPk(diagnosticoId);
     if (!diagnostico) {
       return res.status(404).json({ message: 'Diagnóstico no encontrado.' });
     }
 
-    // Si se cambia el código CIE-10, aplicar regla de la letra Z
+    const codigoFinal = (codigoCIE10 || diagnostico.codigoCIE10 || '').trim().toUpperCase();
     let tipoDiagnosticoFinal = tipoDiagnostico || diagnostico.tipoDiagnostico;
-    const codigoFinal = codigoCIE10 || diagnostico.codigoCIE10;
-
-    if (codigoFinal.toUpperCase().startsWith('Z')) {
+    if (codigoFinal.startsWith('Z')) {
       tipoDiagnosticoFinal = 'NO APLICA';
     }
 
     await diagnostico.update({
-      codigoCIE10: codigoFinal,
+      codigoCIE10: codigoFinal || diagnostico.codigoCIE10,
       tipoDiagnostico: tipoDiagnosticoFinal,
-      descripcion: descripcion || diagnostico.descripcion
+      descripcion: descripcion !== undefined ? descripcion : diagnostico.descripcion,
+      padreId: padreId !== undefined ? (padreId ? parseInt(padreId, 10) : null) : diagnostico.padreId,
+      esCausaExterna: esCausaExterna !== undefined ? !!esCausaExterna : diagnostico.esCausaExterna
     });
 
     const diagnosticoActualizado = await DetalleDiagnosticos.findByPk(diagnosticoId, {
@@ -159,15 +169,37 @@ exports.validarFirma = async (req, res) => {
       where: { atencionEmergenciaId: atencionId }
     });
 
-    // Verificar si hay al menos un diagnóstico DEFINITIVO
+    // Código en rango causa externa (V00-V99, W00-X59, X60-Y09, Y35-Y84)
+    const esCausaExternaRango = (cod) => /^[VWXY]\d{2}/.test(String(cod || '').trim().toUpperCase());
+    const hayCodigoST = diagnosticos.some(d => {
+      const c = String(d.codigoCIE10 || '').trim().toUpperCase();
+      return c.startsWith('S') || c.startsWith('T');
+    });
+    const tieneCausaExterna = diagnosticos.some(d => esCausaExternaRango(d.codigoCIE10));
+    const causaExternaOk = !hayCodigoST || tieneCausaExterna;
+    const motivoCausaExterna = !causaExternaOk
+      ? 'Existe código S o T (trauma). Debe agregar al menos un diagnóstico de causa externa (V00-V99, W00-X59, X60-Y09, Y35-Y84).'
+      : null;
+
+    // Verificar si hay al menos un diagnóstico DEFINITIVO (excepto códigos Z)
     const tieneDefinitivo = diagnosticos.some(d => {
-      const esCodigoZ = d.codigoCIE10.toUpperCase().startsWith('Z');
-      return d.tipoDiagnostico === 'DEFINITIVO' || (esCodigoZ && d.tipoDiagnostico === 'NO APLICA');
+      const esZ = (d.codigoCIE10 || '').toUpperCase().startsWith('Z');
+      return d.tipoDiagnostico === 'DEFINITIVO' && !esZ;
     });
 
-    // Verificar antecedentes y Sección D (violencia + observaciones)
+    // Claves de la Sección H (Examen Físico Regional) — Form 008
+    const EXAMEN_FISICO_REGIONAL_KEYS = ['estado_general', 'piel_faneras', 'cabeza', 'ojos', 'oidos', 'nariz', 'boca', 'orofaringe', 'cuello', 'axilas_mamas', 'torax', 'abdomen', 'columna_vertebral', 'miembros_superiores', 'miembros_inferiores'];
+
+    // Verificar antecedentes, Sección D (violencia + observaciones), exámenes H/I y Sección J (Obstetricia / MEF)
     const atencion = await AtencionEmergencia.findByPk(atencionId, {
-      attributes: ['antecedentesPatologicos', 'tipoAccidenteViolenciaIntoxicacion', 'observacionesAccidente']
+      attributes: ['antecedentesPatologicos', 'tipoAccidenteViolenciaIntoxicacion', 'observacionesAccidente', 'examenFisico', 'examenFisicoTraumaCritico', 'embarazoParto'],
+      include: [{
+        model: Pacientes,
+        as: 'Paciente',
+        attributes: ['fecha_nacimiento'],
+        required: false,
+        include: [{ model: CatSexos, as: 'Sexo', attributes: ['nombre'], required: false }]
+      }]
     });
     let antecedentesOk = true;
     let motivoAntecedentes = null;
@@ -211,8 +243,65 @@ exports.validarFirma = async (req, res) => {
       }
     }
 
-    const puedeFirmar = (tieneDefinitivo || diagnosticos.length === 0) && antecedentesOk && violenciaOk;
-    const motivo = !violenciaOk ? motivoViolencia : (!antecedentesOk ? motivoAntecedentes : (!tieneDefinitivo && diagnosticos.length > 0 ? 'Debe existir al menos un diagnóstico DEFINITIVO (excepto códigos Z).' : null));
+    // Secciones H e I: al menos una con contenido (no ambos vacíos)
+    let examenFisicoOk = true;
+    let motivoExamenFisico = null;
+    if (atencion) {
+      let ef = {};
+      try {
+        ef = typeof atencion.examenFisico === 'string' ? JSON.parse(atencion.examenFisico || '{}') : (atencion.examenFisico || {});
+      } catch {
+        ef = {};
+      }
+      const hConContenido = EXAMEN_FISICO_REGIONAL_KEYS.some(k => {
+        const desc = (ef[k] || '').toString().trim();
+        const noNormal = ef[`${k}_normal`] === false;
+        return desc !== '' || noNormal;
+      });
+      const iConContenido = ((atencion.examenFisicoTraumaCritico || '').toString().trim()).length > 0;
+      if (!hConContenido && !iConContenido) {
+        examenFisicoOk = false;
+        motivoExamenFisico = 'Debe completar al menos el Examen Físico Regional (H) o el Examen de Trauma/Crítico (I).';
+      }
+    }
+
+    // Sección J (Obstetricia): si es mujer en edad fértil (10–49 años), debe tener estado de gestación definido
+    let obstetriciaOk = true;
+    let motivoObstetricia = null;
+    if (atencion && atencion.Paciente) {
+      const sexo = (atencion.Paciente.Sexo ? atencion.Paciente.Sexo.nombre : null) || '';
+      const fn = atencion.Paciente.fecha_nacimiento;
+      let edadAnios = null;
+      if (fn) {
+        const n = new Date(fn);
+        const h = new Date();
+        edadAnios = h.getFullYear() - n.getFullYear();
+        const m = h.getMonth() - n.getMonth();
+        if (m < 0 || (m === 0 && h.getDate() < n.getDate())) edadAnios--;
+      }
+      const esMasculino = /^(masculino|hombre)$/i.test(String(sexo).trim());
+      const esMEF = !esMasculino && edadAnios != null && edadAnios >= 10 && edadAnios <= 49;
+      let estadoGestacion = '';
+      if (atencion.embarazoParto) {
+        try {
+          const ep = typeof atencion.embarazoParto === 'string' ? JSON.parse(atencion.embarazoParto) : atencion.embarazoParto;
+          estadoGestacion = (ep.estadoGestacion ?? '').toString().trim();
+        } catch (_) {}
+      }
+      if (esMEF && !estadoGestacion) {
+        obstetriciaOk = false;
+        motivoObstetricia = 'Paciente en edad fértil: Por favor confirme si existe embarazo o sospecha para completar la Sección J.';
+      }
+    }
+
+    const puedeFirmar = (tieneDefinitivo || diagnosticos.length === 0) && antecedentesOk && violenciaOk && examenFisicoOk && obstetriciaOk && causaExternaOk;
+    let motivo = null;
+    if (!violenciaOk) motivo = motivoViolencia;
+    else if (!antecedentesOk) motivo = motivoAntecedentes;
+    else if (!examenFisicoOk) motivo = motivoExamenFisico;
+    else if (!obstetriciaOk) motivo = motivoObstetricia;
+    else if (!causaExternaOk) motivo = motivoCausaExterna;
+    else if (!tieneDefinitivo && diagnosticos.length > 0) motivo = 'Debe existir al menos un diagnóstico DEFINITIVO (excepto códigos Z).';
 
     res.status(200).json({
       puedeFirmar,
@@ -221,7 +310,13 @@ exports.validarFirma = async (req, res) => {
       totalDiagnosticos: diagnosticos.length,
       antecedentesOk,
       violenciaOk,
-      ...(motivoViolencia && { motivoViolencia })
+      examenFisicoOk,
+      obstetriciaOk,
+      causaExternaOk,
+      ...(motivoViolencia && { motivoViolencia }),
+      ...(motivoExamenFisico && { motivoExamenFisico }),
+      ...(motivoObstetricia && { motivoObstetricia }),
+      ...(motivoCausaExterna && { motivoCausaExterna })
     });
   } catch (error) {
     console.error('Error al validar firma:', error);

@@ -5,7 +5,9 @@
   "main": "app.js",
   "scripts": {
     "start": "node app.js",
-    "dev": "nodemon app.js"
+    "dev": "nodemon app.js",
+    "verificar-bd": "node scripts/verificar_bd_directo.js",
+    "ejecutar-sql": "node scripts/ejecutar_sql_bd.js"
   },
   "keywords": [],
   "author": "",
