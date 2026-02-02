@@ -1,4 +1,5 @@
 const AtencionPacienteEstado = require('../models/atencionPacienteEstado');
+const AtencionEmergencia = require('../models/atencionEmergencia'); // Importar modelo de Atención Emergencia
 const Admision = require('../models/admisiones');
 const Paciente = require('../models/pacientes');
 const Usuario = require('../models/usuario');
@@ -418,6 +419,42 @@ exports.createOrUpdateAtencionPacienteEstado = async (admision, estadoNombre, us
     
     // Emitir evento Socket.io si el estado es EN_ATENCION o SIGNOS_VITALES
     if (estadoNombre === 'EN_ATENCION' || estadoNombre === 'SIGNOS_VITALES') {
+      
+      // LOGICA DE CAPTURA DE TIEMPO DE ORO (Golden Hour)
+      if (estadoNombre === 'EN_ATENCION') {
+        try {
+          // Verificar si ya existe registro de atención
+          const atencionExistente = await AtencionEmergencia.findOne({
+            where: { admisionId: admision.id },
+            transaction
+          });
+
+          if (!atencionExistente) {
+            const ahoraEcuador = moment().tz('America/Guayaquil');
+            const fechaAtencion = ahoraEcuador.format('YYYY-MM-DD');
+            const horaAtencion = ahoraEcuador.format('HH:mm');
+
+            console.log(`[createOrUpdateAtencionPacienteEstado] Creando registro de Atención Emergencia (Tiempo de Oro): ${fechaAtencion} ${horaAtencion}`);
+
+            await AtencionEmergencia.create({
+              admisionId: admision.id,
+              pacienteId: admision.pacienteId,
+              usuarioId: finalUsuarioResponsableId || usuarioId, // El médico responsable o quien ejecuta la acción
+              fechaAtencion: fechaAtencion,
+              horaAtencion: horaAtencion,
+              condicionLlegada: 'ESTABLE', // Valor por defecto, médico puede cambiarlo
+              estadoFirma: 'BORRADOR',
+              esValida: true
+            }, { transaction });
+          } else {
+             console.log(`[createOrUpdateAtencionPacienteEstado] Registro de Atención ya existe para admisión ${admision.id}, no se sobrescribe tiempo.`);
+          }
+        } catch (atencionError) {
+          console.error('[createOrUpdateAtencionPacienteEstado] Error al crear registro automático de AtencionEmergencia:', atencionError);
+          // No bloqueamos el flujo principal si falla esto, pero es crítico loguearlo
+        }
+      }
+
       try {
         // Obtener datos del paciente para el evento
         const paciente = await Paciente.findByPk(admision.pacienteId, { transaction });
