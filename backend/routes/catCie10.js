@@ -7,7 +7,7 @@ const validarToken = require('../middlewares/validarToken');
 router.get('/', validarToken, catCie10Controller.getAllCIE10);
 
 // Ruta para buscar en el catálogo CIE10 por código o descripción
-router.get('/search', validarToken, catCie10Controller.searchCIE10);
+router.get('/buscar', validarToken, catCie10Controller.searchCIE10);
 
 // Ruta para obtener un código CIE10 específico por ID
 router.get('/:id', validarToken, catCie10Controller.getCIE10ById);

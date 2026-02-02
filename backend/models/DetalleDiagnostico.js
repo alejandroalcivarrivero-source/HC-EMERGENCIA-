@@ -26,9 +26,9 @@ const DetalleDiagnostico = sequelize.define('DetalleDiagnostico', {
     defaultValue: 'PRESUNTIVO'
   },
   condicion: {
-    type: DataTypes.ENUM('PRINCIPAL', 'SECUNDARIO', 'CAUSA EXTERNA', 'NO APLICA'),
+    type: DataTypes.ENUM('Presuntivo', 'Definitivo Inicial', 'Definitivo Inicial por Laboratorio', 'CAUSA EXTERNA', 'NO APLICA'),
     allowNull: false,
-    defaultValue: 'PRINCIPAL'
+    defaultValue: 'Presuntivo'
   },
   padre_id: {
     type: DataTypes.INTEGER,

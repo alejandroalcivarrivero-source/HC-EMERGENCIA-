@@ -124,7 +124,7 @@ const PatientBanner = ({ paciente, admision, triaje, alergias = [], atencion, on
               {atencion && atencion.estadoFirma !== 'FINALIZADO_FIRMADO' && onReasignar && (userRoleId === 1 || userRoleId === 5) && (
                 <button
                   onClick={onReasignar}
-                  className="shrink-0 px-3 py-1.5 bg-transparent text-gray-500 border border-gray-300 rounded-lg hover:bg-gray-50 hover:text-gray-700 transition-colors text-xs font-medium"
+                  className="shrink-0 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-xs font-medium"
                 >
                   Reasignar
                 </button>

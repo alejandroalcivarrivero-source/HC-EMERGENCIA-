@@ -1,9 +1,11 @@
 const { Op } = require('sequelize');
+const sequelize = require('../config/database');
 const AtencionEmergencia = require('../models/atencionEmergencia');
 const DetalleDiagnosticos = require('../models/detalleDiagnosticos');
 const CatCIE10 = require('../models/catCie10');
 const Pacientes = require('../models/pacientes');
 const CatSexos = require('../models/cat_sexos');
+const { esCodigoZ, esCodigoST, esCausaExternaRango, validarDiagnostico } = require('../utils/validacionesCIE10');
 
 /**
  * Obtener diagnósticos de una atención
@@ -13,8 +15,8 @@ exports.getDiagnosticos = async (req, res) => {
     const { atencionId } = req.params;
 
     const diagnosticos = await DetalleDiagnosticos.findAll({
-      where: { atencion_emergencia_id: atencionId }, // Corregido a snake_case
-      attributes: ['id', 'atencion_emergencia_id', 'codigo_cie10', 'tipo_diagnostico', 'condicion', 'padre_id', 'es_causa_externa'], // Incluir 'condicion'
+      where: { atencion_emergencia_id: atencionId },
+      attributes: ['id', 'atencion_emergencia_id', 'codigo_cie10', 'tipo_diagnostico', 'condicion', 'padre_id', 'es_causa_externa'],
       include: [{
         model: CatCIE10,
         as: 'CIE10',
@@ -25,7 +27,7 @@ exports.getDiagnosticos = async (req, res) => {
         attributes: ['id', 'codigo_cie10', 'tipo_diagnostico', 'condicion', 'es_causa_externa'],
         required: false
       }],
-      order: [['id', 'ASC']] // Ordenar por ID para consistencia
+      order: [['id', 'ASC']]
     });
 
     res.status(200).json(diagnosticos);
@@ -43,12 +45,29 @@ exports.getDiagnosticos = async (req, res) => {
 exports.agregarDiagnostico = async (req, res) => {
   try {
     const { atencionId } = req.params;
+    // CRONOLOGÍA ELIMINADA: Eliminamos 'cronologia' del body
     const { codigoCIE10, descripcion, tipoDiagnostico, condicion, esCausaExterna, padreId } = req.body;
 
     // Verificar que la atención existe
     const atencion = await AtencionEmergencia.findByPk(atencionId);
     if (!atencion) {
       return res.status(404).json({ message: 'Atención no encontrada.' });
+    }
+
+    // Validación MSP 008: S/T requiere Causa Externa (validado con Evento Traumático)
+    let noAplicaEventoTraumatico = false;
+    try {
+      const d = typeof atencion.tipoAccidenteViolenciaIntoxicacion === 'string'
+        ? JSON.parse(atencion.tipoAccidenteViolenciaIntoxicacion || '{}')
+        : (atencion.tipoAccidenteViolenciaIntoxicacion || {});
+      if (d.noAplica === true) noAplicaEventoTraumatico = true;
+    } catch (e) {
+      console.warn('Error al parsear tipoAccidenteViolenciaIntoxicacion para validación:', e);
+    }
+
+    const validacion = validarDiagnostico(codigoCIE10, { noAplicaEventoTraumatico });
+    if (!validacion.valido) {
+      return res.status(400).json({ message: validacion.mensaje });
     }
 
     // Verificar que el código CIE-10 existe
@@ -58,47 +77,97 @@ exports.agregarDiagnostico = async (req, res) => {
     }
 
     const codigo = (codigoCIE10 || '').trim().toUpperCase();
-    let tipoDiagnosticoFinal = tipoDiagnostico;
-    let condicionFinal = condicion; // Asume que el frontend envía la condición correcta si no hay reglas que la modifiquen
-
-    if (codigo.startsWith('Z')) {
-      tipoDiagnosticoFinal = 'ESTADISTICO'; // Corregido a ESTADISTICO según el DDL
-      condicionFinal = 'NO APLICA';
-    } else if (!!esCausaExterna) { // Si el diagnóstico es una causa externa
-      condicionFinal = 'CAUSA EXTERNA';
-    } else if (codigo.startsWith('S') || codigo.startsWith('T')) {
-      // Si es S o T y no es causa externa, es principal o secundario
-      // Dejamos que el frontend determine si es principal o secundario, pero por defecto es PRINCIPAL
-      if (!condicionFinal) condicionFinal = 'PRINCIPAL';
-    } else {
-      // Para otros códigos, si no se especifica, se asume PRINCIPAL
-      if (!condicionFinal) condicionFinal = 'PRINCIPAL';
+    
+    // Validación Estricta: Si es S/T, DEBE llegar con su par (req.body.causaExterna)
+    // Excepción: Si Evento Traumático es "No Aplica" (ya validado arriba por validarDiagnostico, pero reforzamos lógica de guardado)
+    if (esCodigoST(codigo) && !noAplicaEventoTraumatico && !req.body.causaExterna) {
+        return res.status(400).json({
+            message: 'Violación de regla de integridad: Los diagnósticos de trauma (S/T) deben guardarse simultáneamente con su Causa Externa (V-Y).'
+        });
     }
 
-    const diagnostico = await DetalleDiagnosticos.create({
-      atencion_emergencia_id: atencionId, // Corregido a atencion_emergencia_id según el modelo
-      codigo_cie10: codigoCIE10, // Corregido a codigo_cie10
-      tipo_diagnostico: tipoDiagnosticoFinal, // Corregido a tipo_diagnostico
-      condicion: condicionFinal, // Agregado el campo condicion
-      descripcion: descripcion || cie10.descripcion, // La descripción debe venir del frontend o CIE10
-      padre_id: padreId ? parseInt(padreId, 10) : null, // Corregido a padre_id
-      es_causa_externa: !!esCausaExterna // Corregido a es_causa_externa
-    });
+    let tipoDiagnosticoFinal = tipoDiagnostico;
+    let condicionFinal = condicion;
+    
+    // Lógica de Normalización de Condición
+    if (esCodigoZ(codigo)) {
+      if (tipoDiagnostico === 'NO APLICA' || !tipoDiagnostico) {
+        tipoDiagnosticoFinal = 'ESTADISTICO';
+        condicionFinal = 'NO APLICA';
+      } else {
+        tipoDiagnosticoFinal = tipoDiagnostico;
+        if (!condicionFinal) condicionFinal = 'PRINCIPAL';
+      }
+    } else if (!!esCausaExterna) {
+      condicionFinal = 'CAUSA EXTERNA';
+    } else if (esCodigoST(codigo)) {
+      if (!condicionFinal) condicionFinal = 'PRINCIPAL';
+    } else {
+      if (!condicionFinal) condicionFinal = 'PRINCIPAL';
+    }
+    
+    if (tipoDiagnosticoFinal === 'DEFINITIVO' && !condicionFinal) {
+        condicionFinal = 'Definitivo Inicial';
+    } else if (tipoDiagnosticoFinal === 'PRESUNTIVO' && !condicionFinal) {
+        condicionFinal = 'Presuntivo';
+    }
 
-    const diagnosticoCompleto = await DetalleDiagnosticos.findByPk(diagnostico.id, {
-      include: [{
-        model: CatCIE10,
-        as: 'CIE10',
-        attributes: ['codigo', 'descripcion']
-      }, {
-        model: DetalleDiagnosticos, // Incluir la relación para obtener el padre
-        as: 'CausaExternaPadre',
-        attributes: ['id', 'codigo_cie10', 'tipo_diagnostico', 'condicion', 'es_causa_externa'],
-        required: false
-      }]
-    });
-    const payload = diagnosticoCompleto.toJSON ? diagnosticoCompleto.toJSON() : diagnosticoCompleto;
-    res.status(201).json({ ...payload, requiereCausaExterna: (codigo.startsWith('S') || codigo.startsWith('T')) }); // Aseguramos que se envía requiereCausaExterna
+    const t = await sequelize.transaction();
+    
+    try {
+        const diagnostico = await DetalleDiagnosticos.create({
+          atencion_emergencia_id: atencionId,
+          codigo_cie10: codigoCIE10,
+          tipo_diagnostico: tipoDiagnosticoFinal,
+          condicion: condicionFinal,
+          descripcion: (descripcion === undefined || descripcion === null) ? cie10.descripcion : descripcion,
+          padre_id: padreId ? parseInt(padreId, 10) : null,
+          es_causa_externa: !!esCausaExterna
+        }, { transaction: t });
+
+        // Si hay causa externa anidada (par V-Y)
+        if (req.body.causaExterna && esCodigoST(codigo)) {
+            const { codigoCIE10: ceCod, descripcion: ceDesc, tipoDiagnostico: ceTipo } = req.body.causaExterna;
+            
+            // Validar existencia de CE
+            const cie10CE = await CatCIE10.findOne({ where: { codigo: ceCod } });
+            if (!cie10CE) {
+                throw new Error(`Código de causa externa ${ceCod} no encontrado.`);
+            }
+
+            await DetalleDiagnosticos.create({
+                atencion_emergencia_id: atencionId,
+                codigo_cie10: ceCod,
+                tipo_diagnostico: ceTipo || 'PRESUNTIVO', // Default a presuntivo si no viene
+                condicion: 'CAUSA EXTERNA',
+                descripcion: ceDesc || cie10CE.descripcion,
+                padre_id: diagnostico.id,
+                es_causa_externa: true
+            }, { transaction: t });
+        }
+
+        await t.commit();
+
+        const diagnosticoCompleto = await DetalleDiagnosticos.findByPk(diagnostico.id, {
+          include: [{
+            model: CatCIE10,
+            as: 'CIE10',
+            attributes: ['codigo', 'descripcion']
+          }, {
+            model: DetalleDiagnosticos,
+            as: 'CausaExternaPadre',
+            attributes: ['id', 'codigo_cie10', 'tipo_diagnostico', 'condicion', 'es_causa_externa'],
+            required: false
+          }]
+        });
+        const payload = diagnosticoCompleto.toJSON ? diagnosticoCompleto.toJSON() : diagnosticoCompleto;
+        res.status(201).json({ ...payload, requiereCausaExterna: esCodigoST(codigo) });
+
+    } catch (err) {
+        await t.rollback();
+        throw err;
+    }
+
   } catch (error) {
     console.error('Error al agregar diagnóstico:', error);
     res.status(500).json({ message: 'Error al agregar diagnóstico.', error: error.message });
@@ -107,11 +176,11 @@ exports.agregarDiagnostico = async (req, res) => {
 
 /**
  * Actualizar un diagnóstico
- * Regla Z → ESTADISTICO; acepta esCausaExterna para códigos V-W-X-Y.
  */
 exports.actualizarDiagnostico = async (req, res) => {
   try {
     const { diagnosticoId } = req.params;
+    // CRONOLOGÍA ELIMINADA: No se espera cronologia en el body
     const { codigoCIE10, descripcion, tipoDiagnostico, condicion, esCausaExterna, padreId } = req.body;
 
     const diagnostico = await DetalleDiagnosticos.findByPk(diagnosticoId);
@@ -119,30 +188,46 @@ exports.actualizarDiagnostico = async (req, res) => {
       return res.status(404).json({ message: 'Diagnóstico no encontrado.' });
     }
 
-    const codigoFinal = (codigoCIE10 || diagnostico.codigo_cie10 || '').trim().toUpperCase(); // Corregido a codigo_cie10
-    let tipoDiagnosticoFinal = tipoDiagnostico || diagnostico.tipo_diagnostico; // Corregido a tipo_diagnostico
-    let condicionFinal = condicion || diagnostico.condicion; // Agregado condicion
+    const codigoFinal = (codigoCIE10 || diagnostico.codigo_cie10 || '').trim().toUpperCase();
+    let tipoDiagnosticoFinal = tipoDiagnostico || diagnostico.tipo_diagnostico;
+    let condicionFinal = condicion || diagnostico.condicion;
 
-    if (codigoFinal.startsWith('Z')) {
-      tipoDiagnosticoFinal = 'ESTADISTICO'; // Corregido a ESTADISTICO
-      condicionFinal = 'NO APLICA';
-    } else if (esCausaExterna !== undefined ? !!esCausaExterna : diagnostico.es_causa_externa) { // Si el diagnóstico es una causa externa
+    // Normalización al actualizar
+    if (esCodigoZ(codigoFinal)) {
+      if (tipoDiagnostico === 'NO APLICA' || (!tipoDiagnostico && diagnostico.tipo_diagnostico === 'ESTADISTICO')) {
+        tipoDiagnosticoFinal = 'ESTADISTICO';
+        condicionFinal = 'NO APLICA';
+      } else {
+        tipoDiagnosticoFinal = tipoDiagnostico || diagnostico.tipo_diagnostico;
+        if (!condicionFinal) condicionFinal = 'PRINCIPAL';
+      }
+    } else if (esCausaExterna !== undefined ? !!esCausaExterna : diagnostico.es_causa_externa) {
       condicionFinal = 'CAUSA EXTERNA';
-    } else if (codigoFinal.startsWith('S') || codigoFinal.startsWith('T')) {
-      // Si es S o T y no es causa externa, y no se especificó condición, por defecto PRINCIPAL
+    } else if (esCodigoST(codigoFinal)) {
       if (!condicionFinal) condicionFinal = 'PRINCIPAL';
     } else {
-      // Para otros códigos, si no se especificó condición, por defecto PRINCIPAL
       if (!condicionFinal) condicionFinal = 'PRINCIPAL';
     }
+    
+    // **REQUERIMIENTO: Limitar opciones de condición (Definitivo Inicial, Presuntivo)**
+    if (tipoDiagnosticoFinal === 'DEFINITIVO' && condicionFinal !== 'CAUSA EXTERNA' && condicionFinal !== 'NO APLICA') {
+        if (condicionFinal.toUpperCase().includes('INICIAL')) {
+            condicionFinal = condicionFinal.includes('Laboratorio') ? 'Definitivo Inicial por Laboratorio' : 'Definitivo Inicial';
+        } else {
+            condicionFinal = 'Definitivo Inicial'; // Forzar si se edita un definitivo antiguo
+        }
+    } else if (tipoDiagnosticoFinal === 'PRESUNTIVO' && condicionFinal !== 'CAUSA EXTERNA' && condicionFinal !== 'NO APLICA') {
+        condicionFinal = 'Presuntivo';
+    }
+
 
     await diagnostico.update({
-      codigo_cie10: codigoFinal || diagnostico.codigo_cie10, // Corregido a codigo_cie10
-      tipo_diagnostico: tipoDiagnosticoFinal, // Corregido a tipo_diagnostico
-      condicion: condicionFinal, // Agregado condicion
+      codigo_cie10: codigoFinal || diagnostico.codigo_cie10,
+      tipo_diagnostico: tipoDiagnosticoFinal,
+      condicion: condicionFinal,
       descripcion: descripcion !== undefined ? descripcion : diagnostico.descripcion,
-      padre_id: padreId !== undefined ? (padreId ? parseInt(padreId, 10) : null) : diagnostico.padre_id, // Corregido a padre_id
-      es_causa_externa: esCausaExterna !== undefined ? !!esCausaExterna : diagnostico.es_causa_externa // Corregido a es_causa_externa
+      padre_id: padreId !== undefined ? (padreId ? parseInt(padreId, 10) : null) : diagnostico.padre_id,
+      es_causa_externa: esCausaExterna !== undefined ? !!esCausaExterna : diagnostico.es_causa_externa
     });
 
     const diagnosticoActualizado = await DetalleDiagnosticos.findByPk(diagnosticoId, {
@@ -151,7 +236,7 @@ exports.actualizarDiagnostico = async (req, res) => {
         as: 'CIE10',
         attributes: ['codigo', 'descripcion']
       }, {
-        model: DetalleDiagnosticos, // Incluir la relación para obtener el padre
+        model: DetalleDiagnosticos,
         as: 'CausaExternaPadre',
         attributes: ['id', 'codigo_cie10', 'tipo_diagnostico', 'condicion', 'es_causa_externa'],
         required: false
@@ -187,24 +272,17 @@ exports.eliminarDiagnostico = async (req, res) => {
 
 /**
  * Validar si una atención puede ser firmada
- * Requisitos: (1) al menos un diagnóstico DEFINITIVO (excepto códigos Z);
- * (2) al menos un antecedente con contenido o "No aplica" marcado.
  */
 exports.validarFirma = async (req, res) => {
   try {
     const { atencionId } = req.params;
 
     const diagnosticos = await DetalleDiagnosticos.findAll({
-      where: { atencionEmergenciaId: atencionId }
+      where: { atencion_emergencia_id: atencionId }
     });
 
-    // Código en rango causa externa (V00-V99, W00-X59, X60-Y09, Y35-Y84)
-    const esCausaExternaRango = (cod) => /^[VWXY]\d{2}/.test(String(cod || '').trim().toUpperCase());
-    const hayCodigoST = diagnosticos.some(d => {
-      const c = String(d.codigoCIE10 || '').trim().toUpperCase();
-      return c.startsWith('S') || c.startsWith('T');
-    });
-    const tieneCausaExterna = diagnosticos.some(d => esCausaExternaRango(d.codigoCIE10));
+    const hayCodigoST = diagnosticos.some(d => esCodigoST(d.codigo_cie10));
+    const tieneCausaExterna = diagnosticos.some(d => esCausaExternaRango(d.codigo_cie10));
     const causaExternaOk = !hayCodigoST || tieneCausaExterna;
     const motivoCausaExterna = !causaExternaOk
       ? 'Existe código S o T (trauma). Debe agregar al menos un diagnóstico de causa externa (V00-V99, W00-X59, X60-Y09, Y35-Y84).'
@@ -212,14 +290,13 @@ exports.validarFirma = async (req, res) => {
 
     // Verificar si hay al menos un diagnóstico DEFINITIVO (excepto códigos Z)
     const tieneDefinitivo = diagnosticos.some(d => {
-      const esZ = (d.codigoCIE10 || '').toUpperCase().startsWith('Z');
-      return d.tipoDiagnostico === 'DEFINITIVO' && !esZ;
+      const esZ = esCodigoZ(d.codigo_cie10);
+      return d.tipo_diagnostico === 'DEFINITIVO' && !esZ;
     });
 
-    // Claves de la Sección H (Examen Físico Regional) — Form 008
+    // Secciones H/I y Sección J (Obstetricia / MEF)
     const EXAMEN_FISICO_REGIONAL_KEYS = ['estado_general', 'piel_faneras', 'cabeza', 'ojos', 'oidos', 'nariz', 'boca', 'orofaringe', 'cuello', 'axilas_mamas', 'torax', 'abdomen', 'columna_vertebral', 'miembros_superiores', 'miembros_inferiores'];
 
-    // Verificar antecedentes, Sección D (violencia + observaciones), exámenes H/I y Sección J (Obstetricia / MEF)
     const atencion = await AtencionEmergencia.findByPk(atencionId, {
       attributes: ['antecedentesPatologicos', 'tipoAccidenteViolenciaIntoxicacion', 'observacionesAccidente', 'examenFisico', 'examenFisicoTraumaCritico', 'embarazoParto'],
       include: [{

@@ -130,6 +130,7 @@ function initAssociations() {
   // Asociaciones para DetalleDiagnosticos
   DetalleDiagnosticos.belongsTo(AtencionEmergencia, { foreignKey: 'atencionEmergenciaId', as: 'AtencionEmergencia' });
   DetalleDiagnosticos.belongsTo(CatCIE10, { foreignKey: 'codigoCIE10', targetKey: 'codigo', as: 'CIE10' });
+  DetalleDiagnosticos.belongsTo(DetalleDiagnosticos, { foreignKey: 'padre_id', as: 'CausaExternaPadre' }); // Autorelación para causa externa
   AtencionEmergencia.hasMany(DetalleDiagnosticos, { foreignKey: 'atencionEmergenciaId', as: 'DetalleDiagnosticos' });
 
   // Asociaciones para LogReasignacionesMedicas

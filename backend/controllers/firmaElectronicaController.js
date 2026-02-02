@@ -8,6 +8,7 @@ const Usuario = require("../models/usuario");
 const { encrypt, decrypt } = require("../utils/cryptoFirma");
 const { extraerMetadatos, abrirP12ParaFirma } = require("../utils/p12Metadatos");
 const { contenidoAFirmarForm008, firmarConClavePrivada, crearSelloDigital } = require("../utils/selloDigital");
+const { esCodigoST, esCausaExternaRango } = require("../utils/validacionesCIE10");
 
 /**
  * Validar que una atención puede ser firmada
@@ -32,6 +33,17 @@ exports.validarPuedeFirmar = async (atencionId) => { // Exportar directamente
     return {
       puedeFirmar: false,
       motivo: "Debe existir al menos un diagnóstico DEFINITIVO (excepto códigos Z).",
+    };
+  }
+
+  // Validación de Trauma (S o T) requiere Causa Externa (V-Y)
+  const hayCodigoST = diagnosticos.some(d => esCodigoST(d.codigo_cie10));
+  const tieneCausaExterna = diagnosticos.some(d => esCausaExternaRango(d.codigo_cie10));
+
+  if (hayCodigoST && !tieneCausaExterna) {
+    return {
+      puedeFirmar: false,
+      motivo: "Existe diagnóstico de Trauma (S o T). Debe agregar al menos un diagnóstico de Causa Externa (V00-V99, W00-X59, X60-Y09, Y35-Y84) para poder firmar."
     };
   }
 

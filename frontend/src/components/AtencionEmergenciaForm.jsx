@@ -7,6 +7,7 @@ import OrdenExamenForm from './OrdenExamenForm'; // Importar el componente de Or
 import OrdenImagenForm from './OrdenImagenForm'; // Importar el componente de Orden de Imagen
 import AtencionInicial from './AtencionInicial'; // Importar componente refactorizado
 import EventoTraumatico from './EventoTraumatico'; // Importar componente refactorizado
+import DiagnosticosCIE10 from './DiagnosticosCIE10'; // Importar componente de diagnósticos
 import { Trash2, PlusCircle, AlertCircle, FileText } from 'lucide-react'; // Nuevos íconos
 
 const API_BASE = 'http://localhost:3001/api';
@@ -152,11 +153,15 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
     }
 
     // Inicialización de formData con atencionData si existe o datos por defecto si no
-    if (atencionData && Object.keys(formData).length === 0) { // Solo si formData está vacío
+    if (atencionData && Object.keys(atencionData).length > 0 && Object.keys(formData).length === 0) { // Solo si atencionData NO está vacío y formData está vacío
       existingAtencionIdRef.current = atencionData.id;
       
       fechaInicialRef.current = atencionData.fechaAtencion || format(new Date(), 'yyyy-MM-dd');
       horaInicialRef.current = atencionData.horaAtencion || format(new Date(), 'HH:mm');
+    } else if (Object.keys(formData).length === 0) { // Si no hay atencionData, pero admisionId sí
+        existingAtencionIdRef.current = parseInt(admisionId, 10); // Usar admisionId como fallback para la atención
+        fechaInicialRef.current = format(new Date(), 'yyyy-MM-dd');
+        horaInicialRef.current = format(new Date(), 'HH:mm');
       
       const apRaw = JSON.parse(atencionData.antecedentesPatologicos || '{}');
       const apKeys = { alergicos: '', clinicos: '', ginecologicos: '', traumaticos: '', pediatricos: '', quirurgicos: '', farmacologicos: '', habitos: '', familiares: '', otros: '' };
@@ -648,10 +653,21 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
         nuevoEstadoAtencion = 'ATENDIDO';
       }
 
-      await axios.put(`${API_BASE}/atencion-paciente-estado/${admisionId}/estado`, { estado: nuevoEstadoAtencion }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      console.log(`Estado del paciente actualizado a: ${nuevoEstadoAtencion}`);
+      if (formData.condicionEgreso !== 'FALLECIDO' && formData.condicionEgreso !== 'ESTABLE' && formData.condicionEgreso !== 'INESTABLE') {
+        await axios.put(`${API_BASE}/atencion-paciente-estado/${admisionId}/estado`, { estado: nuevoEstadoAtencion }, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        console.log(`Estado del paciente actualizado a: ${nuevoEstadoAtencion}`);
+      } else if (formData.condicionEgreso === 'ESTABLE' || formData.condicionEgreso === 'INESTABLE') {
+        // Mantener estado de atención (EN_ATENCION) si es estable/inestable, excepto si ya estaba en un estado final
+        const currentState = await axios.get(`${API_BASE}/atencion-paciente-estado/${admisionId}`, { headers: { Authorization: `Bearer ${token}` } });
+        if (currentState.data.estado !== 'EN_ATENCION' && currentState.data.estado !== 'OBSERVACION' && currentState.data.estado !== 'HOSPITALIZADO') {
+            await axios.put(`${API_BASE}/atencion-paciente-estado/${admisionId}/estado`, { estado: 'EN_ATENCION' }, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            console.log('Estado del paciente re-establecido a EN_ATENCION.');
+        }
+      }
 
       navigate('/lista-espera');
     } catch (err) {
@@ -745,7 +761,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
       <form onSubmit={handleSubmit} className="space-y-6">
         <fieldset disabled={readOnly} className={readOnly ? 'opacity-95 pointer-events-none select-none' : ''}>
         {/* Botón para generar PDF Preliminar */}
-        {!readOnly && (activeTab === 'condicionEgreso' || activeTab === 'planTratamiento') && (
+        {!readOnly && (activeTab === 'enfermedadActual' || activeTab === 'diagnosticos' || activeTab === 'condicionEgreso' || activeTab === 'planTratamiento') && (
             <div className="mb-4 text-right">
                 <button
                     type="button"
@@ -799,10 +815,11 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
             <button
               type="button"
               className={`py-3 px-5 text-sm font-semibold transition-all whitespace-nowrap rounded-t-lg ${
-                activeTab === 'accidenteViolencia' 
-                  ? 'border-b-3 border-blue-600 text-blue-700 bg-blue-50 shadow-sm' 
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-              }`}
+                activeTab === 'accidenteViolencia'
+                  ? 'border-b-3 border-blue-600 text-blue-700 bg-blue-50 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'}
+                ${formData.tipoAccidenteViolenciaIntoxicacion?.noAplica === true ? 'opacity-70' : ''}
+              `}
               onClick={() => handleTabChange('accidenteViolencia')}
               title="Información sobre accidentes, violencia o intoxicación"
             >
@@ -1611,13 +1628,12 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
 
           {activeTab === 'diagnosticos' && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-              <h2 className="text-xl font-semibold text-gray-800 mb-4">Diagnósticos (L y M)</h2>
-              <p className="text-sm text-gray-500 mb-4">Gestione los diagnósticos principales y complementarios según la normativa MSP.</p>
-              {/* Aquí se renderizará el componente DiagnosticosCIE10, que ya está en la página padre */}
-              {/* <DiagnosticosCIE10 atencionId={existingAtencionIdRef.current || atencionData?.id} readOnly={readOnly} /> */}
-              <div className="text-center text-gray-500 italic p-4 border rounded-lg">
-                Los diagnósticos se gestionan directamente desde la sección de "Diagnósticos" en la vista principal.
-              </div>
+              {/* Se pasa atencionId disponible (ya sea existente o de la data cargada o directamente admisionId) */}
+              <DiagnosticosCIE10
+                atencionId={existingAtencionIdRef.current || atencionData?.id || parseInt(admisionId, 10)}
+                readOnly={readOnly}
+                formDataMain={formData} // Pasar formData completo para validaciones cruzadas (trauma S/T vs Evento Traumático)
+              />
             </div>
           )}
 
@@ -1887,28 +1903,6 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
         </fieldset>
 
         {/* Botones de acción: Guardar y Finalizar */}
-        {!readOnly && (
-          <div className="flex justify-end gap-3 mt-6">
-            <button
-              type="submit"
-              disabled={saving}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg shadow-md hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
-            >
-              {saving ? (
-                <>
-                  <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                  Guardando...
-                </>
-              ) : (
-                <>
-                  <FileText className="w-5 h-5" />
-                  Guardar Atención (Pendiente de Firma)
-                </>
-              )}
-            </button>
-          </div>
-        )}
-
         {/* Modales */}
         <ModalMefObstetricia
           isOpen={showModalMefObstetricia}

@@ -144,7 +144,8 @@ async function getAtencionEmergenciaByAdmision(req, res) {
         const atencion = await AtencionEmergencia.findOne({ where: { admisionId } });
         
         if (!atencion) {
-            return res.status(404).json({ message: "No se encontró atención para esta admisión" });
+            // Se requiere devolver un objeto vacío con status 200 si no hay atención previa
+            return res.status(200).json({});
         }
         res.status(200).json(atencion);
     } catch (error) {

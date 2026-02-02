@@ -5,7 +5,6 @@ import { format } from 'date-fns'; // Para manejar fechas y horas
 import Header from '../components/Header';
 import PatientBanner from '../components/PatientBanner';
 import AtencionEmergenciaForm from '../components/AtencionEmergenciaForm';
-import DiagnosticosCIE10 from '../components/DiagnosticosCIE10';
 import ReasignarPacienteModal from '../components/ReasignarPacienteModal';
 import FirmaElectronica from '../components/FirmaElectronica';
 import { CheckCircle2 } from 'lucide-react';
@@ -115,8 +114,10 @@ const AtencionEmergenciaPage = () => {
             }
           }
         } catch (err) {
+          // Manejo Silencioso de Error 404 (Estabilidad)
           if (err.response && err.response.status === 404) {
-            console.log('No existe atención de emergencia previa para esta admisión, se buscará borrador.');
+            console.log('[AtencionEmergenciaPage] 404 en consulta de atención. Procediendo a carga de borrador (temporal_guardado).');
+            // No lanzamos error, permitimos que el flujo continúe hacia la carga del borrador
           } else {
             throw err;
           }
@@ -131,16 +132,18 @@ const AtencionEmergenciaPage = () => {
             });
             if (borradorResponse.data && borradorResponse.data.datos) {
               borradorData = borradorResponse.data.datos;
-              console.log('Borrador cargado exitosamente:', borradorData);
+              console.log('Borrador cargado exitosamente.');
               // Inicializar formData con los datos del borrador, sobrescribiendo si hay currentAtencion
               setFormData(borradorData);
             } else if (currentAtencion) {
               // Si hay atención pero no borrador, inicializar formData con la atención
               setFormData(currentAtencion);
+            } else {
+              console.log('No se encontró borrador, continuando con inicialización por defecto.');
             }
           } catch (err) {
             if (err.response && err.response.status === 404) {
-              console.log('No se encontró borrador para esta atención/admisión.');
+              console.log('No se encontró borrador para esta atención/admisión. Continuando con inicialización por defecto.');
             } else {
               console.error('Error al cargar borrador (AtencionEmergenciaPage):', err);
             }
@@ -290,16 +293,6 @@ const AtencionEmergenciaPage = () => {
               setFormData={setFormData} // Pasar setFormData
             />
           </div>
-
-          {/* Diagnósticos CIE-10 */}
-          {atencion && ( // Renderizar DiagnosticosCIE10 solo si hay una atención principal creada
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
-              <DiagnosticosCIE10
-                atencionId={atencion.id}
-                readOnly={atencion.estadoFirma === 'FINALIZADO_FIRMADO'}
-              />
-            </div>
-          )}
 
           {/* Firmar y Cerrar: solo si no está finalizado/firmado */}
           {atencion && atencion.estadoFirma !== 'FINALIZADO_FIRMADO' && (
