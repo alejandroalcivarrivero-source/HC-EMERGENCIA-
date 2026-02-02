@@ -9,7 +9,8 @@ const DB_CONFIG = {
     user: process.env.DB_USER || 'TICS',
     password: process.env.DB_PASSWORD || 'TICS20141',
     database: process.env.DB_NAME || 'EMERGENCIA',
-    dialect: process.env.DB_DIALECT || 'mariadb'
+    dialect: process.env.DB_DIALECT || 'mariadb',
+    connectTimeout: 60000 // Default: 60 segundos
   },
   CASA: {
     // Modo CASA/TÚNEL: 127.0.0.1:3308 (extremo local del túnel SSH)
@@ -19,7 +20,8 @@ const DB_CONFIG = {
     user: process.env.DB_USER || 'TICS',
     password: process.env.DB_PASSWORD_CASA || 'TICS20141',
     database: process.env.DB_NAME || 'EMERGENCIA',
-    dialect: process.env.DB_DIALECT || 'mariadb'
+    dialect: process.env.DB_DIALECT || 'mariadb',
+    connectTimeout: 60000 // 60 segundos, para el túnel SSH.
   }
 };
 
@@ -38,7 +40,7 @@ function createSequelizeInstance(config) {
         min: 0
       },
       dialectOptions: {
-        connectTimeout: 5000 // 5 segundos de timeout
+        connectTimeout: config.connectTimeout || 60000 // Usar el valor de la config, o 60s por defecto.
       }
     }
   );
@@ -125,7 +127,25 @@ async function connectWithFallback() {
       copySequelizeInstance(db, sequelize);
       return db;
     } catch (error) {
-      console.warn(`⚠️ No se pudo conectar a BD TRABAJO: ${error.message}`);
+      // Manejo de errores: SequelizeConnectionError ahora se compara con string
+      const isConnectionError = error.name === 'SequelizeConnectionError';
+      
+      if (isConnectionError) {
+        console.warn(`⚠️ Error de conexión a BD TRABAJO (${error.name}): ${error.message}`);
+      } else {
+        console.warn(`⚠️ No se pudo conectar a BD TRABAJO: ${error.message}`);
+      }
+      
+      // Asegurarse de cerrar el pool de la conexión fallida antes del fallback
+      try {
+        if (db && typeof db.close === 'function') {
+          await db.close();
+          console.log('✅ Pool de conexión TRABAJO fallido cerrado antes de fallback.');
+        }
+      } catch (closeError) {
+        console.warn('⚠️ Error al intentar cerrar pool de conexión TRABAJO fallido:', closeError.message);
+      }
+      
       console.log(`🔄 Intentando con BD CASA (Radmin)...`);
       
       // Si falla, intentar con CASA (túnel SSH)
@@ -143,9 +163,10 @@ async function connectWithFallback() {
         copySequelizeInstance(db, sequelize);
         return db;
       } catch (error2) {
-        console.error(`❌ Error conectando a BD CASA: ${error2.message}`);
+        // Usando la comparación de error.name en el error final para mejor trazabilidad
+        console.error(`❌ Error conectando a BD CASA (${error2.name}): ${error2.message}`);
         console.error(`💡 Asegúrate de que el túnel SSH esté activo. Ejecuta: npm run tunnel`);
-        throw new Error(`No se pudo conectar a ninguna base de datos. TRABAJO: ${error.message}, CASA: ${error2.message}`);
+        throw new Error(`No se pudo conectar a ninguna base de datos. TRABAJO (${error.name}): ${error.message}, CASA (${error2.name}): ${error2.message}`);
       }
     }
   }
@@ -161,9 +182,41 @@ function copySequelizeInstance(source, target) {
       target[method] = source[method].bind(source);
     }
   });
+
   // Mantener target.models: no sobrescribir con source.models (source está vacía al conectar por fallback)
   if (source.config) {
+    // 1. Copiar la configuración
     target.config = source.config;
+    
+    // 2. Reemplazar el ConnectionManager del objeto original (target) con el de la instancia
+    // que se conectó exitosamente (source). Esto asegura que los modelos definidos en 'target'
+    // usen el pool de conexiones correcto.
+    if (source.connectionManager) {
+      // Intentar cerrar la conexión anterior (fallida) antes de reemplazar
+      try {
+        if (target.connectionManager && typeof target.connectionManager.close === 'function') {
+          target.connectionManager.close();
+          console.log('✅ Pool de conexiones anterior del proxy cerrado.');
+        }
+      } catch (e) {
+        console.warn('⚠️ Error al intentar cerrar el pool de conexiones anterior:', e.message);
+      }
+      
+      // Asignar el nuevo connectionManager
+      target.connectionManager = source.connectionManager;
+      
+      // También se debe actualizar el objeto dialecto para que apunte al manager correcto
+      if (target.dialect) {
+        target.dialect.connectionManager = source.connectionManager;
+      }
+    }
+    
+    // 3. Copiar las opciones de dialecto y pool para consistencia
+    if (source.options) {
+      target.options.dialect = source.options.dialect;
+      target.options.pool = source.options.pool;
+      target.options.dialectOptions = source.options.dialectOptions;
+    }
   }
 }
 
@@ -175,8 +228,7 @@ const sequelizeProxy = new Proxy(sequelize, {
       return target.models;
     }
     if (activeSequelize !== target && activeSequelize[prop] !== undefined) {
-      const value = activeSequelize[prop];
-      return typeof value === 'function' ? value.bind(activeSequelize) : value;
+      return activeSequelize[prop];
     }
     return target[prop];
   }

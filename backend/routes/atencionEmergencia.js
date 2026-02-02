@@ -24,4 +24,8 @@ router.get('/historial/:pacienteId', validarToken, atencionEmergenciaController.
 // Ruta para eliminar una atención de emergencia por ID
 router.delete('/:id', validarToken, atencionEmergenciaController.deleteAtencionEmergencia);
 
+// Rutas para el guardado automático (Autosave)
+router.post('/borrador', validarToken, atencionEmergenciaController.guardarBorrador);
+router.get('/borrador/:idAtencion', validarToken, atencionEmergenciaController.cargarBorrador);
+
 module.exports = router;

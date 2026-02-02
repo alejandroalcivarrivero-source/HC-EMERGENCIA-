@@ -3,6 +3,8 @@ const sequelize = require('../config/database');
 const Paciente = require('./pacientes');
 const Admision = require('./admisiones');
 const Usuario = require('./usuario');
+const TemporalGuardado = require('./temporal_guardado');
+const DetalleDiagnostico = require('./DetalleDiagnostico');
 
 const AtencionEmergencia = sequelize.define('AtencionEmergencia', {
   id: {
@@ -184,6 +186,13 @@ const AtencionEmergencia = sequelize.define('AtencionEmergencia', {
   tableName: 'ATENCION_EMERGENCIA'
 });
 
-// Las asociaciones se definen en init-associations.js para evitar dependencias circulares
+// Definición de asociaciones:
+// Aunque el comentario dice que se definen en init-associations.js, las definimos aquí para garantizar
+// que los modelos cargados en el controlador tengan las relaciones listas.
+AtencionEmergencia.hasOne(TemporalGuardado, { foreignKey: 'idAtencion', as: 'borrador' });
+TemporalGuardado.belongsTo(AtencionEmergencia, { foreignKey: 'idAtencion' });
+
+AtencionEmergencia.hasMany(DetalleDiagnostico, { foreignKey: 'atencion_emergencia_id', as: 'diagnosticos' });
+DetalleDiagnostico.belongsTo(AtencionEmergencia, { foreignKey: 'atencion_emergencia_id' });
 
 module.exports = AtencionEmergencia;

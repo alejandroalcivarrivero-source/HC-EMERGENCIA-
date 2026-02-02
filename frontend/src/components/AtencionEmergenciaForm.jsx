@@ -5,7 +5,9 @@ import { format, differenceInYears, differenceInWeeks, parseISO } from 'date-fns
 import RecetaMedicaForm from './RecetaMedicaForm'; // Importar el componente de Receta Médica
 import OrdenExamenForm from './OrdenExamenForm'; // Importar el componente de Orden de Examen
 import OrdenImagenForm from './OrdenImagenForm'; // Importar el componente de Orden de Imagen
-import DiagnosticosCIE10 from './DiagnosticosCIE10';
+import { Trash2, PlusCircle, AlertCircle, FileText } from 'lucide-react'; // Nuevos íconos
+
+const API_BASE = 'http://localhost:3001/api';
 
 /** Campos oficiales MSP Sección E (Antecedentes Patológicos) – orden y etiquetas */
 const CAMPOS_ANTECEDENTES = [
@@ -132,81 +134,12 @@ const DEFAULT_EXAMENES_K = () => ({
   observaciones: '',
 });
 
-const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData, readOnly = false, onAlergiasChange, onRevaloracionMedica }) => {
+const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData, readOnly = false, onAlergiasChange, onRevaloracionMedica, formData, setFormData }) => {
   const { admisionId } = useParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [atencionIdFromSave, setAtencionIdFromSave] = useState(null); // id de atención creada por autoguardado en esta sesión
-  const [atencionEmergenciaData, setAtencionEmergenciaData] = useState({
-    // SECCIÓN: ATENCIÓN INICIAL
-    fechaAtencion: '', // Se inicializará automáticamente al cargar
-    horaAtencion: '', // Se inicializará automáticamente al cargar
-    condicionLlegada: '',
-    motivoAtencion: '',
-    // SECCIÓN: EVENTO TRAUMÁTICO (Accidente, Violencia, Intoxicación)
-    fechaEvento: '',
-    horaEvento: '',
-    lugarEvento: '',
-    direccionEvento: '',
-    custodiaPolicial: null,
-    notificacion: null,
-    // Puede ser array legacy o un objeto (nuevo). Se normaliza al cargar.
-    tipoAccidenteViolenciaIntoxicacion: {
-      seleccion: [],
-      transito: {
-        consumoSustancias: '', // 'SI' | 'NO' | 'NO_CONSTA' | ''
-        proteccion: { casco: false, cinturon: false }
-      }
-    },
-    observacionesAccidente: '',
-    sugestivoAlientoAlcoholico: null,
-    // SECCIÓN: ANTECEDENTES PATOLÓGICOS (E – MSP: 10 campos + No aplica)
-    antecedentesPatologicos: (() => {
-      const keys = { alergicos: '', clinicos: '', ginecologicos: '', traumaticos: '', pediatricos: '', quirurgicos: '', farmacologicos: '', habitos: '', familiares: '', otros: '' };
-      const noAplicaKeys = Object.keys(keys).reduce((o, k) => ({ ...o, [k]: false }), {});
-      return { ...keys, noAplicaGeneral: false, noAplica: noAplicaKeys };
-    })(),
-    // SECCIÓN: PROBLEMA ACTUAL
-    enfermedadProblemaActual: '',
-    // SECCIÓN: EXAMEN FÍSICO (H regional + G neurológico/constantes)
-    examenFisico: (() => {
-      const regionalKeys = EXAMEN_FISICO_REGIONAL_ITEMS.map(i => i.key);
-      const desc = Object.fromEntries(regionalKeys.map(k => [k, '']));
-      const norm = Object.fromEntries(regionalKeys.map(k => [`${k}_normal`, true]));
-      return {
-        ...desc,
-        ...norm,
-        glasgow_ocular: null, glasgow_verbal: null, glasgow_motora: null,
-        pupilas_derecha: '', pupilas_izquierda: '',
-        tiempo_llenado_capilar: '', glicemia_capilar: null, perimetro_cefalico: null, peso: null, talla: null
-      };
-    })(),
-    // SECCIÓN: EXAMEN TRAUMATOLÓGICO
-    examenFisicoTraumaCritico: '',
-    // SECCIÓN: OBSTETRICIA (J)
-    embarazoParto: {
-      estadoGestacion: '', // 'SI' | 'NO' | 'SOSPECHA' — ¿Embarazo confirmado o sospecha?
-      numeroGestas: null, numeroPartos: null, numeroAbortos: null, numeroCesareas: null,
-      fum: '', semanasGestacion: null, movimientoFetal: false, frecuenciaCardiacaFetal: null,
-      rupturaMembranas: false, tiempo: '', afu: '', presentacion: '',
-      dilatacion: '', borramiento: '', plano: '', pelvisViable: false,
-      sangradoVaginal: false, contracciones: false, scoreMama: null
-    },
-    // SECCIÓN K: EXÁMENES COMPLEMENTARIOS (objeto: examenes_no_aplica, items 1–16, observaciones)
-    examenesComplementarios: DEFAULT_EXAMENES_K(),
-    // SECCIÓN: DIAGNÓSTICOS PRESUNTIVOS
-    diagnosticosPresuntivos: [], // [{cie: '', descripcion: ''}]
-    // SECCIÓN: DIAGNÓSTICOS DEFINITIVOS
-    diagnosticosDefinitivos: [], // [{cie: '', descripcion: ''}]
-    // SECCIÓN: PLAN DE TRATAMIENTO
-    planTratamiento: [], // [{medicamento: '', via: '', dosis: '', posologia: '', dias: null}]
-    observacionesPlanTratamiento: '',
-    // SECCIÓN: CONDICIÓN AL EGRESO
-    condicionEgreso: '',
-    referenciaEgreso: '',
-    establecimientoEgreso: ''
-  });
   const TABS = ['inicioAtencion', 'enfermedadActual', 'antecedentes', 'accidenteViolencia', 'seccionG', 'examenFisico', 'embarazoParto', 'examenesComplementarios', 'diagnosticos', 'planTratamiento', 'condicionEgreso'];
   const [activeTab, setActiveTab] = useState('inicioAtencion');
   const [examenRegionalRevision, setExamenRegionalRevision] = useState(0); // fuerza re-render de lista H al usar "Marcar todo como Normal"
@@ -223,11 +156,16 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
   const existingAtencionIdRef = useRef(null); // Referencia al ID de atención existente
   const horaInicialRef = useRef(null); // Referencia a la hora inicial de captura (para persistencia)
   const fechaInicialRef = useRef(null); // Referencia a la fecha inicial de captura (para persistencia)
-  const atencionEmergenciaDataRef = useRef(null); // Ref para “Marcar todo como Normal” (evitar prev obsoleto)
+  const formDataRef = useRef(null); // Ref para “Marcar todo como Normal” (evitar prev obsoleto)
+
+  const [newPlanItem, setNewPlanItem] = useState({ medicamento: '', via: '', dosis: '', posologia: '', dias: null }); // Nuevo estado para añadir ítems al plan
+
+  // Modal para confirmar egreso por fallecimiento
+  const [showConfirmFallecidoModal, setShowConfirmFallecidoModal] = useState(false);
 
   useEffect(() => {
-    atencionEmergenciaDataRef.current = atencionEmergenciaData;
-  }, [atencionEmergenciaData]);
+    formDataRef.current = formData;
+  }, [formData]);
 
   useEffect(() => {
     console.log("[AtencionEmergenciaForm] admisionData recibido:", admisionData);
@@ -235,16 +173,14 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
     console.log("[AtencionEmergenciaForm] signosVitalesData recibido:", signosVitalesData);
 
     if (!admisionData || !signosVitalesData) {
-      // Si los datos esenciales no están disponibles, aún estamos cargando o hay un error en la página padre
       setLoading(true);
       return;
     }
 
-    // Si atencionData existe, precargar el formulario con esos datos (Atención en Curso)
-    if (atencionData) {
-      existingAtencionIdRef.current = atencionData.id; // Guardar el ID de la atención existente
+    // Inicialización de formData con atencionData si existe o datos por defecto si no
+    if (atencionData && Object.keys(formData).length === 0) { // Solo si formData está vacío
+      existingAtencionIdRef.current = atencionData.id;
       
-      // Guardar la hora y fecha originales para persistencia
       fechaInicialRef.current = atencionData.fechaAtencion || format(new Date(), 'yyyy-MM-dd');
       horaInicialRef.current = atencionData.horaAtencion || format(new Date(), 'HH:mm');
       
@@ -252,7 +188,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
       const apKeys = { alergicos: '', clinicos: '', ginecologicos: '', traumaticos: '', pediatricos: '', quirurgicos: '', farmacologicos: '', habitos: '', familiares: '', otros: '' };
       const apNoAplicaDef = Object.keys(apKeys).reduce((o, k) => ({ ...o, [k]: false }), {});
       const apNormalized = { ...apKeys, ...apRaw, noAplicaGeneral: apRaw.noAplicaGeneral ?? false, noAplica: { ...apNoAplicaDef, ...(apRaw.noAplica || {}) } };
-      // Normalizar Sección D: soportar formato legacy (array) y formato nuevo (objeto con seleccion/transito)
+      
       const tipoDef = { seleccion: [], transito: { consumoSustancias: '', proteccion: { casco: false, cinturon: false } } };
       let tipoRaw = JSON.parse(atencionData.tipoAccidenteViolenciaIntoxicacion || '[]');
       let tipoNormalized = tipoDef;
@@ -268,7 +204,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
             ...(tipoRaw.transito || {}),
             proteccion: {
               ...tipoDef.transito.proteccion,
-              ...(((tipoRaw.transito || {}).proteccion) || {})
+              ...(((tipoRaw.transito || {})?.proteccion) || {})
             }
           }
         };
@@ -304,9 +240,10 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
           observaciones: (ecRaw.observaciones ?? '').toString().trim()
         };
       })();
-      setAtencionEmergenciaData(prevData => ({
+      setFormData(prevData => ({ // Usar setFormData
         ...prevData,
         ...atencionData,
+        enfermedadProblemaActual: atencionData.enfermedadProblemaActual || '',
         fechaAtencion: fechaInicialRef.current,
         horaAtencion: horaInicialRef.current,
         tipoAccidenteViolenciaIntoxicacion: tipoNormalized,
@@ -314,8 +251,6 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
         examenFisico: examenFisicoNorm,
         embarazoParto: embarazoPartoNorm,
         examenesComplementarios: ecNorm,
-        diagnosticosPresuntivos: JSON.parse(atencionData.diagnosticosPresuntivos || '[]'),
-        diagnosticosDefinitivos: JSON.parse(atencionData.diagnosticosDefinitivos || '[]'),
         planTratamiento: JSON.parse(atencionData.planTratamiento || '[]'),
       }));
       lastSavedRef.current = JSON.stringify({
@@ -325,36 +260,57 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
         examenFisico: examenFisicoNorm,
         embarazoParto: embarazoPartoNorm,
         examenesComplementarios: ecNorm,
-        diagnosticosPresuntivos: JSON.parse(atencionData.diagnosticosPresuntivos || '[]'),
-        diagnosticosDefinitivos: JSON.parse(atencionData.diagnosticosDefinitivos || '[]'),
         planTratamiento: JSON.parse(atencionData.planTratamiento || '[]'),
       }); // Inicializar referencia
-    } else {
-      // Si no existe atención previa (Atención Nueva), inicializar fecha/hora y precargar desde enfermería (Sección G)
+    } else if (Object.keys(formData).length === 0) { // Si no hay atencionData y formData está vacío, inicializar con defaults
       const fechaActual = format(new Date(), 'yyyy-MM-dd');
       const horaActual = format(new Date(), 'HH:mm');
       const sv = signosVitalesData;
-      setAtencionEmergenciaData(prevData => ({
+      setFormData(prevData => ({
         ...prevData,
         fechaAtencion: fechaActual,
         horaAtencion: horaActual,
-        examenFisico: {
-          ...prevData.examenFisico,
-          peso: prevData.examenFisico.peso ?? sv?.peso ?? null,
-          talla: prevData.examenFisico.talla ?? sv?.talla ?? null,
-          glicemia_capilar: prevData.examenFisico.glicemia_capilar ?? sv?.glicemia_capilar ?? null,
-          perimetro_cefalico: prevData.examenFisico.perimetro_cefalico ?? sv?.perimetro_cefalico ?? null
-        }
+        condicionLlegada: '',
+        motivoAtencion: '',
+        fechaEvento: '', horaEvento: '', lugarEvento: '', direccionEvento: '',
+        custodiaPolicial: null, notificacion: null,
+        tipoAccidenteViolenciaIntoxicacion: { seleccion: [], transito: { consumoSustancias: '', proteccion: { casco: false, cinturon: false } } },
+        observacionesAccidente: '', sugestivoAlientoAlcoholico: null,
+        antecedentesPatologicos: (() => {
+          const keys = { alergicos: '', clinicos: '', ginecologicos: '', traumaticos: '', pediatricos: '', quirurgicos: '', farmacologicos: '', habitos: '', familiares: '', otros: '' };
+          const noAplicaKeys = Object.keys(keys).reduce((o, k) => ({ ...o, [k]: false }), {});
+          return { ...keys, noAplicaGeneral: false, noAplica: noAplicaKeys };
+        })(),
+        enfermedadProblemaActual: '',
+        examenFisico: (() => {
+          const regionalKeys = EXAMEN_FISICO_REGIONAL_ITEMS.map(i => i.key);
+          const desc = Object.fromEntries(regionalKeys.map(k => [k, '']));
+          const norm = Object.fromEntries(regionalKeys.map(k => [`${k}_normal`, true]));
+          return {
+            ...desc, ...norm,
+            glasgow_ocular: null, glasgow_verbal: null, glasgow_motora: null,
+            pupilas_derecha: '', pupilas_izquierda: '', tiempo_llenado_capilar: '',
+            glicemia_capilar: sv?.glicemia_capilar ?? null, perimetro_cefalico: sv?.perimetro_cefalico ?? null,
+            peso: sv?.peso ?? null, talla: sv?.talla ?? null
+          };
+        })(),
+        examenFisicoTraumaCritico: '',
+        embarazoParto: { estadoGestacion: '', numeroGestas: null, numeroPartos: null, numeroAbortos: null, numeroCesareas: null, fum: '', semanasGestacion: null, movimientoFetal: false, frecuenciaCardiacaFetal: null, rupturaMembranas: false, tiempo: '', afu: '', presentacion: '', dilatacion: '', borramiento: '', plano: '', pelvisViable: false, sangradoVaginal: false, contracciones: false, scoreMama: null },
+        examenesComplementarios: DEFAULT_EXAMENES_K(),
+        planTratamiento: [],
+        observacionesPlanTratamiento: '',
+        condicionEgreso: '', referenciaEgreso: '', establecimientoEgreso: ''
       }));
       lastSavedRef.current = null; // No hay datos guardados aún
     }
+
     setLoading(false);
-    if (atencionData && admisionId) {
+    if (atencionData && admisionId) { // No usar formData aquí, ya que atencionData es la fuente de verdad inicial
       const saved = localStorage.getItem(`form008_tab_${admisionId}`);
       if (saved && TABS.includes(saved)) setActiveTab(saved);
       else if (saved === 'examenTrauma') setActiveTab('examenFisico');
     }
-  }, [admisionData, atencionData, signosVitalesData]);
+  }, [admisionData, atencionData, signosVitalesData, formData]); // Agregar formData a las dependencias
 
   // Función para guardar automáticamente
   const autoSave = useCallback(async (dataToSave, isImmediate = false) => {
@@ -371,33 +327,16 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
       const token = localStorage.getItem('token');
       if (!token) return;
 
-      const dataToSend = {
-        ...dataToSave,
-        pacienteId: admisionData.pacienteId,
-        admisionId: parseInt(admisionId),
-        tipoAccidenteViolenciaIntoxicacion: JSON.stringify(dataToSave.tipoAccidenteViolenciaIntoxicacion),
-        antecedentesPatologicos: JSON.stringify(dataToSave.antecedentesPatologicos),
-        examenFisico: JSON.stringify(dataToSave.examenFisico),
-        embarazoParto: JSON.stringify(dataToSave.embarazoParto),
-        examenesComplementarios: JSON.stringify(dataToSave.examenesComplementarios),
-        diagnosticosPresuntivos: JSON.stringify(dataToSave.diagnosticosPresuntivos),
-        diagnosticosDefinitivos: JSON.stringify(dataToSave.diagnosticosDefinitivos),
-        planTratamiento: JSON.stringify(dataToSave.planTratamiento),
+      const idAtencionParaBorrador = existingAtencionIdRef.current || atencionData?.id || parseInt(admisionId, 10);
+      
+      const dataToSendForBorrador = {
+        idAtencion: idAtencionParaBorrador,
+        datos: dataToSave // Enviamos el objeto completo, el controlador lo convertirá a JSON string
       };
 
-      if (existingAtencionIdRef.current) {
-        // Actualizar existente
-        await axios.put(`http://localhost:3001/api/atencion-emergencia/${existingAtencionIdRef.current}`, dataToSend, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-      } else {
-        // Crear nuevo
-        const response = await axios.post('http://localhost:3001/api/atencion-emergencia', dataToSend, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        existingAtencionIdRef.current = response.data.id;
-        setAtencionIdFromSave(response.data.id); // para que la pestaña Diagnósticos muestre DiagnosticosCIE10 sin recargar
-      }
+      await axios.post(`${API_BASE}/atencion-emergencia/borrador`, dataToSendForBorrador, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
 
       lastSavedRef.current = currentDataString;
       setSaved(true);
@@ -409,32 +348,29 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
     } finally {
       setSaving(false);
     }
-  }, [admisionData, admisionId, readOnly]);
+  }, [admisionData, admisionId, readOnly, atencionData, formData]); // Agregar formData a las dependencias
 
   // Auto-save con debounce (2 segundos después de dejar de escribir)
   useEffect(() => {
     if (loading || !admisionData || readOnly) return;
 
-    // Cancelar timeout anterior
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }
 
-    // Crear nuevo timeout
     timeoutRef.current = setTimeout(() => {
-      autoSave(atencionEmergenciaData, false);
+      autoSave(formData, false); // Usar formData
     }, 2000); // 2 segundos de delay
 
-    // Cleanup
     return () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
     };
-  }, [atencionEmergenciaData, autoSave, loading, admisionData, readOnly]);
+  }, [formData, autoSave, loading, admisionData, readOnly]); // Usar formData en dependencias
 
   const handleTabChange = (newTab) => {
-    autoSave(atencionEmergenciaData, true);
+    autoSave(formData, true); // Usar formData
     if (admisionId) localStorage.setItem(`form008_tab_${admisionId}`, newTab);
     setActiveTab(newTab);
   };
@@ -443,31 +379,19 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
   useEffect(() => {
     const handleBeforeUnload = (e) => {
       if (readOnly) return;
-      if (JSON.stringify(atencionEmergenciaData) !== lastSavedRef.current) {
-        // Usar sendBeacon para guardar de forma síncrona antes de cerrar
+      if (JSON.stringify(formData) !== lastSavedRef.current) { // Usar formData
         const token = localStorage.getItem('token');
         if (token) {
-          const dataToSend = {
-            ...atencionEmergenciaData,
-            pacienteId: admisionData?.pacienteId,
-            admisionId: parseInt(admisionId),
-            tipoAccidenteViolenciaIntoxicacion: JSON.stringify(atencionEmergenciaData.tipoAccidenteViolenciaIntoxicacion),
-            antecedentesPatologicos: JSON.stringify(atencionEmergenciaData.antecedentesPatologicos),
-            examenFisico: JSON.stringify(atencionEmergenciaData.examenFisico),
-            embarazoParto: JSON.stringify(atencionEmergenciaData.embarazoParto),
-            examenesComplementarios: JSON.stringify(atencionEmergenciaData.examenesComplementarios),
-            diagnosticosPresuntivos: JSON.stringify(atencionEmergenciaData.diagnosticosPresuntivos),
-            diagnosticosDefinitivos: JSON.stringify(atencionEmergenciaData.diagnosticosDefinitivos),
-            planTratamiento: JSON.stringify(atencionEmergenciaData.planTratamiento),
+          const idAtencionParaBorrador = existingAtencionIdRef.current || atencionData?.id || parseInt(admisionId, 10);
+
+          const dataToSendForBorrador = {
+            idAtencion: idAtencionParaBorrador,
+            datos: formData // Enviamos el objeto completo
           };
           
-          const url = existingAtencionIdRef.current
-            ? `http://localhost:3001/api/atencion-emergencia/${existingAtencionIdRef.current}`
-            : 'http://localhost:3001/api/atencion-emergencia';
-          
           navigator.sendBeacon(
-            url,
-            new Blob([JSON.stringify(dataToSend)], { type: 'application/json' })
+            `${API_BASE}/atencion-emergencia/borrador`,
+            new Blob([JSON.stringify(dataToSendForBorrador)], { type: 'application/json' })
           );
         }
       }
@@ -475,26 +399,26 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [atencionEmergenciaData, admisionId, admisionData, readOnly]);
+  }, [formData, admisionId, admisionData, readOnly, atencionData]); // Usar formData y atencionData en dependencias
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
 
-    // Listener especial para condicionLlegada
+    if (name === 'condicionEgreso' && value === 'FALLECIDO') {
+      setShowConfirmFallecidoModal(true); // Mostrar modal de confirmación
+    }
+
     if (name === 'condicionLlegada') {
-      setAtencionEmergenciaData(prevData => {
+      setFormData(prevData => {
         const newData = {
           ...prevData,
           condicionLlegada: value
         };
         
-        // Si cambia a ESTABLE o INESTABLE, restaurar fecha/hora original
         if (value === 'ESTABLE' || value === 'INESTABLE') {
           newData.fechaAtencion = fechaInicialRef.current || format(new Date(), 'yyyy-MM-dd');
           newData.horaAtencion = horaInicialRef.current || format(new Date(), 'HH:mm');
         }
-        // Si es FALLECIDO, mantener la fecha/hora actual (permitir edición)
-        // No hacer nada especial, los campos ya estarán desbloqueados
         
         return newData;
       });
@@ -502,20 +426,46 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
     }
 
     if (name === 'custodiaPolicial' || name === 'notificacion' || name === 'sugestivoAlientoAlcoholico') {
-      setAtencionEmergenciaData(prevData => ({
+      setFormData(prevData => ({
         ...prevData,
         [name]: value === 'true' // Convertir a booleano
       }));
     } else {
-      setAtencionEmergenciaData(prevData => ({
+      setFormData(prevData => ({
         ...prevData,
         [name]: type === 'checkbox' ? checked : value
       }));
     }
   };
 
+  const handleGenerarPreliminar = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        navigate('/login');
+        return;
+      }
+      const response = await axios.get(`${API_BASE}/firma-electronica/preview-preliminar/${admisionId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob'
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `formulario_008_preliminar_${admisionId}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      alert('PDF Preliminar generado y descargado.');
+    } catch (err) {
+      console.error('Error al generar PDF Preliminar:', err);
+      alert(err.response?.data?.message || 'Error al generar el PDF Preliminar.');
+    }
+  };
+
   const handleNestedChange = (section, field, value) => {
-    setAtencionEmergenciaData(prevData => {
+    setFormData(prevData => {
       const newValue = (field === 'glasgow_ocular' || field === 'glasgow_verbal' || field === 'glasgow_motora')
         ? (value === '' ? null : parseInt(value, 10)) // Convertir a número o null para Glasgow
         : value;
@@ -539,7 +489,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
   };
 
   const handleArrayChange = (section, index, field, value) => {
-    setAtencionEmergenciaData(prevData => {
+    setFormData(prevData => {
       const newArray = [...prevData[section]];
       newArray[index] = { ...newArray[index], [field]: value };
       return { ...prevData, [section]: newArray };
@@ -547,14 +497,14 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
   };
 
   const addArrayItem = (section, newItem) => {
-    setAtencionEmergenciaData(prevData => ({
+    setFormData(prevData => ({
       ...prevData,
       [section]: [...prevData[section], newItem]
     }));
   };
 
   const removeArrayItem = (section, index) => {
-    setAtencionEmergenciaData(prevData => ({
+    setFormData(prevData => ({
       ...prevData,
       [section]: prevData[section].filter((_, i) => i !== index)
     }));
@@ -562,7 +512,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
 
   /** No aplica general para Sección E (Antecedentes) */
   const setNoAplicaGeneralAntecedentes = (value) => {
-    setAtencionEmergenciaData(prev => ({
+    setFormData(prev => ({
       ...prev,
       antecedentesPatologicos: { ...prev.antecedentesPatologicos, noAplicaGeneral: !!value }
     }));
@@ -570,7 +520,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
 
   /** No aplica por campo en Sección E */
   const setNoAplicaCampoAntecedente = (fieldKey, value) => {
-    setAtencionEmergenciaData(prev => ({
+    setFormData(prev => ({
       ...prev,
       antecedentesPatologicos: {
         ...prev.antecedentesPatologicos,
@@ -581,7 +531,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
 
   /** Sección K: marcar/desmarcar ítem de exámenes complementarios (1–16) */
   const setExamenItemK = (num, checked) => {
-    setAtencionEmergenciaData(prev => {
+    setFormData(prev => {
       const ec = prev.examenesComplementarios || DEFAULT_EXAMENES_K();
       return {
         ...prev,
@@ -595,7 +545,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
 
   /** Sección K: activar "No Aplica" — limpia ítems y observaciones, deshabilita edición de la sección */
   const setNoAplicaEstudiosK = () => {
-    setAtencionEmergenciaData(prev => ({
+    setFormData(prev => ({
       ...prev,
       examenesComplementarios: {
         ...DEFAULT_EXAMENES_K(),
@@ -610,7 +560,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
   const alergiasReportedOnce = useRef(false);
   useEffect(() => {
     if (typeof onAlergiasChange !== 'function') return;
-    const txt = (atencionEmergenciaData?.antecedentesPatologicos?.alergicos || '').trim();
+    const txt = (formData?.antecedentesPatologicos?.alergicos || '').trim();
     const arr = txt ? txt.split(/[,;]/).map(a => a.trim()).filter(Boolean) : [];
     if (!alergiasReportedOnce.current && atencionData && arr.length === 0) {
       alergiasReportedOnce.current = true;
@@ -618,7 +568,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
     }
     alergiasReportedOnce.current = true;
     onAlergiasChange(arr);
-  }, [atencionEmergenciaData?.antecedentesPatologicos?.alergicos, onAlergiasChange, atencionData]);
+  }, [formData?.antecedentesPatologicos?.alergicos, onAlergiasChange, atencionData, formData]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -627,13 +577,12 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
     const edadAnios = paciente?.fecha_nacimiento ? differenceInYears(new Date(), parseISO(paciente.fecha_nacimiento)) : null;
     const esMasculino = /^(masculino|hombre)$/i.test(sexo);
     const esMEF = !esMasculino && edadAnios != null && edadAnios >= 10 && edadAnios <= 49;
-    const estadoGest = atencionEmergenciaData?.embarazoParto?.estadoGestacion || '';
+    const estadoGest = formData?.embarazoParto?.estadoGestacion || '';
     if (esMEF && !estadoGest) {
       setShowModalMefObstetricia(true);
       return;
     }
-    // Sección K: si hay ítems marcados y observaciones vacías, bloquear guardado
-    const ec = atencionEmergenciaData?.examenesComplementarios || DEFAULT_EXAMENES_K();
+    const ec = formData?.examenesComplementarios || DEFAULT_EXAMENES_K();
     if (!ec.examenes_no_aplica) {
       const algunItem = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16].some(i => !!(ec.items && ec.items[i]));
       const obs = (ec.observaciones ?? '').toString().trim();
@@ -652,70 +601,66 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
         return;
       }
 
+      const { diagnosticosPresuntivos, diagnosticosDefinitivos, ...dataToSaveForAtencion } = formData;
+      
       const dataToSend = {
-        ...atencionEmergenciaData,
+        ...dataToSaveForAtencion,
         pacienteId: admisionData.pacienteId,
         admisionId: parseInt(admisionId),
-        // Asegurarse de que los arrays/objetos se envíen como JSON strings
-        tipoAccidenteViolenciaIntoxicacion: JSON.stringify(atencionEmergenciaData.tipoAccidenteViolenciaIntoxicacion),
-        antecedentesPatologicos: JSON.stringify(atencionEmergenciaData.antecedentesPatologicos),
-        examenFisico: JSON.stringify(atencionEmergenciaData.examenFisico),
-        embarazoParto: JSON.stringify(atencionEmergenciaData.embarazoParto),
-        examenesComplementarios: JSON.stringify(atencionEmergenciaData.examenesComplementarios),
-        diagnosticosPresuntivos: JSON.stringify(atencionEmergenciaData.diagnosticosPresuntivos),
-        diagnosticosDefinitivos: JSON.stringify(atencionEmergenciaData.diagnosticosDefinitivos),
-        planTratamiento: JSON.stringify(atencionEmergenciaData.planTratamiento),
+        tipoAccidenteViolenciaIntoxicacion: JSON.stringify(formData.tipoAccidenteViolenciaIntoxicacion),
+        antecedentesPatologicos: JSON.stringify(formData.antecedentesPatologicos),
+        examenFisico: JSON.stringify(formData.examenFisico),
+        embarazoParto: JSON.stringify(formData.embarazoParto),
+        examenesComplementarios: JSON.stringify(formData.examenesComplementarios),
+        planTratamiento: JSON.stringify(formData.planTratamiento),
       };
-      console.log('[AtencionEmergenciaForm] Datos a enviar:', dataToSend);
+      console.log('[AtencionEmergenciaForm] Datos a enviar para atención principal:', dataToSend);
 
-      // Usar el ID guardado en la referencia si existe, sino verificar
+      const finalEstadoFirma = atencionData?.estadoFirma === 'FINALIZADO_FIRMADO' ? 'FINALIZADO_FIRMADO' : 'PENDIENTE_FIRMA';
+      const dataToSendWithEstado = { ...dataToSend, estadoFirma: finalEstadoFirma };
+
       if (existingAtencionIdRef.current) {
-        // Si existe, actualizar
-        await axios.put(`http://localhost:3001/api/atencion-emergencia/${existingAtencionIdRef.current}`, dataToSend, {
+        await axios.put(`${API_BASE}/atencion-emergencia/${existingAtencionIdRef.current}`, dataToSendWithEstado, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        alert('Atención de emergencia actualizada exitosamente.');
+        alert('Atención de emergencia actualizada exitosamente y marcada como PENDIENTE DE FIRMA.');
       } else {
-        // Verificar si existe una atención de emergencia para esta admisión
-        const existingAtencionResponse = await axios.get(`http://localhost:3001/api/atencion-emergencia/admision/${admisionId}`, {
+        const existingAtencionResponse = await axios.get(`${API_BASE}/atencion-emergencia/admision/${admisionId}`, {
           headers: { Authorization: `Bearer ${token}` }
         }).catch(err => {
           if (err.response && err.response.status === 404) {
             console.log('[AtencionEmergenciaForm] No existe atención previa, se procederá a crear.');
-            return null; // No existe, es un POST
+            return null;
           }
           console.error('[AtencionEmergenciaForm] Error al verificar atención existente:', err);
           throw err;
         });
 
         if (existingAtencionResponse && existingAtencionResponse.data) {
-          // Si existe, actualizar y guardar el ID
           existingAtencionIdRef.current = existingAtencionResponse.data.id;
-          await axios.put(`http://localhost:3001/api/atencion-emergencia/${existingAtencionResponse.data.id}`, dataToSend, {
+          await axios.put(`${API_BASE}/atencion-emergencia/${existingAtencionResponse.data.id}`, dataToSendWithEstado, {
             headers: { Authorization: `Bearer ${token}` }
           });
-          alert('Atención de emergencia actualizada exitosamente.');
+          alert('Atención de emergencia actualizada exitosamente y marcada como PENDIENTE DE FIRMA.');
         } else {
-          // Si no existe, crear
-          const response = await axios.post('http://localhost:3001/api/atencion-emergencia', dataToSend, {
+          const response = await axios.post(`${API_BASE}/atencion-emergencia`, dataToSendWithEstado, {
             headers: { Authorization: `Bearer ${token}` }
           });
-          existingAtencionIdRef.current = response.data.id; // Guardar el ID para futuros auto-saves
-          alert('Atención de emergencia creada exitosamente.');
+          existingAtencionIdRef.current = response.data.id;
+          setAtencionIdFromSave(response.data.id);
+          alert('Atención de emergencia creada exitosamente y marcada como PENDIENTE DE FIRMA.');
         }
       }
 
-      // Actualizar el estado del paciente a 'ATENDIDO' o 'HOSPITALIZADO' según la condición de egreso
-      let nuevoEstadoAtencion = 'EN_ATENCION'; // Por defecto, se mantiene en atención
-      if (atencionEmergenciaData.condicionEgreso === 'HOSPITALIZACION') {
+      let nuevoEstadoAtencion = 'EN_ATENCION';
+      if (formData.condicionEgreso === 'HOSPITALIZACION') {
         nuevoEstadoAtencion = 'HOSPITALIZADO';
-      } else if (atencionEmergenciaData.condicionEgreso === 'OBSERVACION_EMERGENCIA') {
+      } else if (formData.condicionEgreso === 'OBSERVACION_EMERGENCIA') {
         nuevoEstadoAtencion = 'OBSERVACION';
-      } else if (atencionEmergenciaData.condicionEgreso === 'FALLECIDO') {
+      } else if (formData.condicionEgreso === 'FALLECIDO') {
         nuevoEstadoAtencion = 'FALLECIDO';
-        // Actualizar también la fecha de fallecimiento en la admisión
         try {
-          await axios.put(`http://localhost:3001/usuarios/admisiones/${admisionId}/estado`, {
+          await axios.put(`${API_BASE}/usuarios/admisiones/${admisionId}/estado`, {
             estado_paciente: 'FALLECIDO',
             fecha_hora_fallecimiento: new Date().toISOString()
           }, {
@@ -724,18 +669,17 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
           console.log('Fecha de fallecimiento actualizada en la admisión.');
         } catch (fallecimientoError) {
           console.error('Error al actualizar fecha de fallecimiento:', fallecimientoError);
-          // No lanzar error, continuar con el flujo
         }
-      } else if (atencionEmergenciaData.condicionEgreso === 'ALTA' || atencionEmergenciaData.condicionEgreso === 'ALTA_DEFINITIVA' || atencionEmergenciaData.condicionEgreso === 'CONSULTA_EXTERNA') {
-        nuevoEstadoAtencion = 'ATENDIDO'; // O 'EGRESO' si se prefiere un estado final más genérico
+      } else if (formData.condicionEgreso === 'ALTA' || formData.condicionEgreso === 'ALTA_DEFINITIVA' || formData.condicionEgreso === 'CONSULTA_EXTERNA') {
+        nuevoEstadoAtencion = 'ATENDIDO';
       }
 
-      await axios.put(`http://localhost:3001/api/atencion-paciente-estado/${admisionId}/estado`, { estado: nuevoEstadoAtencion }, {
+      await axios.put(`${API_BASE}/atencion-paciente-estado/${admisionId}/estado`, { estado: nuevoEstadoAtencion }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       console.log(`Estado del paciente actualizado a: ${nuevoEstadoAtencion}`);
 
-      navigate('/lista-espera'); // Volver a la lista de espera
+      navigate('/lista-espera');
     } catch (err) {
       console.error('[AtencionEmergenciaForm] Error al guardar la atención de emergencia:', err.message);
       console.error('[AtencionEmergenciaForm] Stack trace:', err.stack);
@@ -752,18 +696,16 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
   if (error) {
     return <div className="text-center py-4 text-red-500">{error}</div>;
   }
-
-  // Obtener el color del triaje desde el objeto TriajeDefinitivo si está disponible
+  
   const triajeColor = admisionData.TriajeDefinitivo?.color || 
                       (admisionData.triajeDefinitivo === 'RESUCITACIÓN' ? 'Rojo' : 
                        admisionData.triajeDefinitivo === 'EMERGENCIA' ? 'Naranja' :
                        admisionData.triajeDefinitivo === 'URGENCIA' ? 'Amarillo' :
-                       admisionData.triajeDefinitivo === 'URGENCIA MENOR' ? 'Verde' :
-                       admisionData.triajeDefinitivo === 'SIN URGENCIA' ? 'Azul' : 'Gris');
+                       admisionData.triajeDefinitivo === 'SIN URGENCIA' ? 'Verde' :
+                       admisionData.triajeDefinitivo === 'URGENCIA MENOR' ? 'Azul' : 'Gris');
   
   const triajeNombre = admisionData.TriajeDefinitivo?.nombre || admisionData.triajeDefinitivo || 'N/A';
   
-  // Función para obtener el color CSS según el color del triaje
   const getTriajeColorClass = (color) => {
     const colorLower = color?.toLowerCase();
     if (colorLower === 'rojo' || colorLower === 'red') return 'text-red-600';
@@ -828,6 +770,19 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <fieldset disabled={readOnly} className={readOnly ? 'opacity-95 pointer-events-none select-none' : ''}>
+        {/* Botón para generar PDF Preliminar */}
+        {!readOnly && (activeTab === 'condicionEgreso' || activeTab === 'planTratamiento') && (
+            <div className="mb-4 text-right">
+                <button
+                    type="button"
+                    onClick={handleGenerarPreliminar}
+                    className="px-4 py-2 bg-purple-600 text-white rounded-lg shadow-md hover:bg-purple-700 transition-colors text-sm font-medium flex items-center gap-2 float-right"
+                >
+                    <FileText className="w-4 h-4" />
+                    Generar Preliminar
+                </button>
+            </div>
+        )}
         {/* Tabs de navegación mejorados */}
         <div className="border-b-2 border-gray-200">
           <div className="flex flex-wrap gap-2 overflow-x-auto pb-2">
@@ -981,22 +936,22 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                     type="date"
                     id="fechaAtencion"
                     name="fechaAtencion"
-                    value={atencionEmergenciaData.fechaAtencion}
+                    value={formData.fechaAtencion || ''}
                     onChange={handleChange}
                     required
-                    readOnly={atencionEmergenciaData.condicionLlegada !== 'FALLECIDO'}
+                    readOnly={formData.condicionLlegada !== 'FALLECIDO'}
                     className={`shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline ${
-                      atencionEmergenciaData.condicionLlegada !== 'FALLECIDO' 
+                      formData.condicionLlegada !== 'FALLECIDO' 
                         ? 'bg-gray-100 cursor-not-allowed' 
                         : 'bg-white'
                     }`}
                     title={
-                      atencionEmergenciaData.condicionLlegada !== 'FALLECIDO' 
+                      formData.condicionLlegada !== 'FALLECIDO' 
                         ? 'Fecha automática capturada al inicio de la atención. Solo editable para pacientes fallecidos.' 
                         : 'Editable solo para pacientes fallecidos'
                     }
                   />
-                  {atencionEmergenciaData.condicionLlegada !== 'FALLECIDO' && (
+                  {formData.condicionLlegada !== 'FALLECIDO' && (
                     <p className="text-xs text-gray-500 mt-1">Fecha automática capturada al inicio</p>
                   )}
                 </div>
@@ -1008,22 +963,22 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                     type="time"
                     id="horaAtencion"
                     name="horaAtencion"
-                    value={atencionEmergenciaData.horaAtencion}
+                    value={formData.horaAtencion || ''}
                     onChange={handleChange}
                     required
-                    readOnly={atencionEmergenciaData.condicionLlegada !== 'FALLECIDO'}
+                    readOnly={formData.condicionLlegada !== 'FALLECIDO'}
                     className={`shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline ${
-                      atencionEmergenciaData.condicionLlegada !== 'FALLECIDO' 
+                      formData.condicionLlegada !== 'FALLECIDO' 
                         ? 'bg-gray-100 cursor-not-allowed' 
                         : 'bg-white'
                     }`}
                     title={
-                      atencionEmergenciaData.condicionLlegada !== 'FALLECIDO' 
+                      formData.condicionLlegada !== 'FALLECIDO' 
                         ? 'Hora automática capturada al inicio de la atención. Solo editable para pacientes fallecidos.' 
                         : 'Editable solo para pacientes fallecidos'
                     }
                   />
-                  {atencionEmergenciaData.condicionLlegada !== 'FALLECIDO' && (
+                  {formData.condicionLlegada !== 'FALLECIDO' && (
                     <p className="text-xs text-gray-500 mt-1">Hora automática capturada al inicio</p>
                   )}
                 </div>
@@ -1039,7 +994,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                     type="button"
                     onClick={() => handleChange({ target: { name: 'condicionLlegada', value: 'ESTABLE' } })}
                     className={`p-4 rounded-lg border-2 transition-all ${
-                      atencionEmergenciaData.condicionLlegada === 'ESTABLE'
+                      formData.condicionLlegada === 'ESTABLE'
                         ? 'border-green-500 bg-green-50 shadow-md'
                         : 'border-gray-300 bg-white hover:border-green-300 hover:bg-green-50'
                     }`}
@@ -1054,7 +1009,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                     type="button"
                     onClick={() => handleChange({ target: { name: 'condicionLlegada', value: 'INESTABLE' } })}
                     className={`p-4 rounded-lg border-2 transition-all ${
-                      atencionEmergenciaData.condicionLlegada === 'INESTABLE'
+                      formData.condicionLlegada === 'INESTABLE'
                         ? 'border-yellow-500 bg-yellow-50 shadow-md'
                         : 'border-gray-300 bg-white hover:border-yellow-300 hover:bg-yellow-50'
                     }`}
@@ -1069,7 +1024,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                     type="button"
                     onClick={() => handleChange({ target: { name: 'condicionLlegada', value: 'FALLECIDO' } })}
                     className={`p-4 rounded-lg border-2 transition-all ${
-                      atencionEmergenciaData.condicionLlegada === 'FALLECIDO'
+                      formData.condicionLlegada === 'FALLECIDO'
                         ? 'border-red-500 bg-red-50 shadow-md'
                         : 'border-gray-300 bg-white hover:border-red-300 hover:bg-red-50'
                     }`}
@@ -1091,13 +1046,13 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                 <textarea
                   id="motivoAtencion"
                   name="motivoAtencion"
-                  value={atencionEmergenciaData.motivoAtencion || (admisionData.MotivoConsultaSintoma?.Motivo_Consulta_Sintoma || '')}
+                  value={formData.motivoAtencion || (admisionData.MotivoConsultaSintoma?.Motivo_Consulta_Sintoma || '')}
                   onChange={handleChange}
                   rows={4}
                   placeholder={admisionData.MotivoConsultaSintoma?.Motivo_Consulta_Sintoma ? `Motivo de admisión: ${admisionData.MotivoConsultaSintoma.Motivo_Consulta_Sintoma}` : 'Describa el motivo de atención...'}
                   className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
                 />
-                {admisionData.MotivoConsultaSintoma?.Motivo_Consulta_Sintoma && !atencionEmergenciaData.motivoAtencion && (
+                {admisionData.MotivoConsultaSintoma?.Motivo_Consulta_Sintoma && !formData.motivoAtencion && (
                   <button
                     type="button"
                     onClick={() => handleChange({ target: { name: 'motivoAtencion', value: admisionData.MotivoConsultaSintoma.Motivo_Consulta_Sintoma } })}
@@ -1111,25 +1066,22 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
           )}
           {/* Se elimina el bloque de Signos Vitales de las pestañas */}
 
-          {activeTab === 'accidenteViolencia' && (
-            <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm" style={{ fontFamily: "'Inter', 'Roboto', sans-serif" }}>
-              {(() => {
-                const d = atencionEmergenciaData.tipoAccidenteViolenciaIntoxicacion || {};
+          {activeTab === 'accidenteViolencia' && (() => {
+                const d = formData.tipoAccidenteViolenciaIntoxicacion || {};
                 const seleccion = Array.isArray(d.seleccion) ? d.seleccion : [];
                 const eventoRequerido = seleccion.length > 0;
                 const hayViolencia = seleccion.some(v => String(v).startsWith('VIOLENCIA_'));
                 const esTransito = seleccion.includes('ACCIDENTE_TRANSITO');
-                const obs = String(atencionEmergenciaData.observacionesAccidente || '');
+                const obs = String(formData.observacionesAccidente || '');
                 const obsLen = obs.trim().length;
 
                 const toggleTipo = (value) => {
-                  setAtencionEmergenciaData(prev => {
+                  setFormData(prev => {
                     const cur = prev.tipoAccidenteViolenciaIntoxicacion || {};
                     const sel = Array.isArray(cur.seleccion) ? cur.seleccion : [];
                     const existe = sel.includes(value);
                     const nextSel = existe ? sel.filter(x => x !== value) : [...sel, value];
                     const next = { ...cur, seleccion: nextSel };
-                    // Si se desmarca ACCIDENTE_TRANSITO, limpiar detalles condicionales
                     if (existe && value === 'ACCIDENTE_TRANSITO') {
                       next.transito = { consumoSustancias: '', proteccion: { casco: false, cinturon: false } };
                     }
@@ -1138,13 +1090,12 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                 };
 
                 const setTransito = (patch) => {
-                  setAtencionEmergenciaData(prev => {
+                  setFormData(prev => {
                     const cur = prev.tipoAccidenteViolenciaIntoxicacion || {};
                     const base = cur.transito || {};
                     const baseProt = (base.proteccion || {});
                     const patchProt = (patch.proteccion || {});
-                    return {
-                      ...prev,
+                    return { ...prev,
                       tipoAccidenteViolenciaIntoxicacion: {
                         ...cur,
                         transito: {
@@ -1204,7 +1155,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                           type="date"
                           id="fechaEvento"
                           name="fechaEvento"
-                          value={atencionEmergenciaData.fechaEvento || ''}
+                          value={formData.fechaEvento || ''}
                           onChange={handleChange}
                           required={eventoRequerido}
                           className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
@@ -1218,7 +1169,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                           type="time"
                           id="horaEvento"
                           name="horaEvento"
-                          value={atencionEmergenciaData.horaEvento || ''}
+                          value={formData.horaEvento || ''}
                           onChange={handleChange}
                           required={eventoRequerido}
                           className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
@@ -1232,7 +1183,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                           type="text"
                           id="lugarEvento"
                           name="lugarEvento"
-                          value={atencionEmergenciaData.lugarEvento || ''}
+                          value={formData.lugarEvento || ''}
                           onChange={handleChange}
                           required={eventoRequerido}
                           placeholder="Ej.: Vía pública, domicilio, trabajo, escuela…"
@@ -1247,7 +1198,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                           type="text"
                           id="direccionEvento"
                           name="direccionEvento"
-                          value={atencionEmergenciaData.direccionEvento || ''}
+                          value={formData.direccionEvento || ''}
                           onChange={handleChange}
                           required={eventoRequerido}
                           placeholder="Calle, barrio, referencia…"
@@ -1268,7 +1219,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                               className="form-radio"
                               name="custodiaPolicial"
                               value="true"
-                              checked={atencionEmergenciaData.custodiaPolicial === true}
+                              checked={formData.custodiaPolicial === true}
                               onChange={handleChange}
                               required={eventoRequerido}
                               disabled={readOnly}
@@ -1281,7 +1232,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                               className="form-radio"
                               name="custodiaPolicial"
                               value="false"
-                              checked={atencionEmergenciaData.custodiaPolicial === false}
+                              checked={formData.custodiaPolicial === false}
                               onChange={handleChange}
                               required={eventoRequerido}
                               disabled={readOnly}
@@ -1301,7 +1252,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                               className="form-radio"
                               name="notificacion"
                               value="true"
-                              checked={atencionEmergenciaData.notificacion === true}
+                              checked={formData.notificacion === true}
                               onChange={handleChange}
                               required={eventoRequerido}
                               disabled={readOnly}
@@ -1314,7 +1265,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                               className="form-radio"
                               name="notificacion"
                               value="false"
-                              checked={atencionEmergenciaData.notificacion === false}
+                              checked={formData.notificacion === false}
                               onChange={handleChange}
                               required={eventoRequerido}
                               disabled={readOnly}
@@ -1322,7 +1273,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                             <span className="text-sm text-gray-700">No</span>
                           </label>
                         </div>
-                        {hayViolencia && atencionEmergenciaData.notificacion !== true && (
+                        {hayViolencia && formData.notificacion !== true && (
                           <p className="mt-2 text-xs text-rose-700">
                             Previsión 094: por tratarse de violencia, se requiere notificación legal obligatoria (registre y coordine según protocolo).
                           </p>
@@ -1387,7 +1338,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                       <textarea
                         id="observacionesAccidente"
                         name="observacionesAccidente"
-                        value={atencionEmergenciaData.observacionesAccidente || ''}
+                        value={formData.observacionesAccidente || ''}
                         onChange={handleChange}
                         minLength={hayViolencia ? 100 : undefined}
                         required={hayViolencia}
@@ -1414,38 +1365,37 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                       </p>
                       <div className="flex items-center gap-6">
                         <label className="inline-flex items-center gap-2">
-                          <input
-                            type="radio"
-                            className="form-radio"
-                            name="sugestivoAlientoAlcoholico"
-                            value="true"
-                            checked={atencionEmergenciaData.sugestivoAlientoAlcoholico === true}
-                            onChange={handleChange}
-                            required={eventoRequerido}
-                            disabled={readOnly}
-                          />
-                          <span className="text-sm text-gray-700">Sí</span>
-                        </label>
-                        <label className="inline-flex items-center gap-2">
-                          <input
-                            type="radio"
-                            className="form-radio"
-                            name="sugestivoAlientoAlcoholico"
-                            value="false"
-                            checked={atencionEmergenciaData.sugestivoAlientoAlcoholico === false}
-                            onChange={handleChange}
-                            required={eventoRequerido}
-                            disabled={readOnly}
-                          />
-                          <span className="text-sm text-gray-700">No</span>
-                        </label>
+                            <input
+                              type="radio"
+                              className="form-radio"
+                              name="sugestivoAlientoAlcoholico"
+                              value="true"
+                              checked={formData.sugestivoAlientoAlcoholico === true}
+                              onChange={handleChange}
+                              required={eventoRequerido}
+                              disabled={readOnly}
+                            />
+                            <span className="text-sm text-gray-700">Sí</span>
+                          </label>
+                          <label className="inline-flex items-center gap-2">
+                            <input
+                              type="radio"
+                              className="form-radio"
+                              name="sugestivoAlientoAlcoholico"
+                              value="false"
+                              checked={formData.sugestivoAlientoAlcoholico === false}
+                              onChange={handleChange}
+                              required={eventoRequerido}
+                              disabled={readOnly}
+                            />
+                            <span className="text-sm text-gray-700">No</span>
+                          </label>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })()}
-            </div>
-          )}
+                  );
+                })()}
+
           {activeTab === 'antecedentes' && (
             <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm" style={{ fontFamily: "'Inter', 'Roboto', sans-serif" }}>
               <h2 className="text-xl font-semibold mb-2 text-gray-800">Sección E – Antecedentes Patológicos</h2>
@@ -1457,7 +1407,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                   <div className="flex items-center gap-2">
                     <input
                       type="checkbox"
-                      checked={!!(atencionEmergenciaData.antecedentesPatologicos?.noAplicaGeneral)}
+                      checked={!!(formData.antecedentesPatologicos?.noAplicaGeneral)}
                       onChange={(e) => setNoAplicaGeneralAntecedentes(e.target.checked)}
                       disabled={readOnly}
                       className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -1466,13 +1416,12 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                   </div>
                 </label>
               </div>
-              {/* Grid 2 columnas – 10 campos oficiales MSP */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {CAMPOS_ANTECEDENTES.map(({ key, label, num }) => {
-                  const ap = atencionEmergenciaData.antecedentesPatologicos || {};
-                  const valor = ap[key] != null ? ap[key] : '';
+                  const ap = formData.antecedentesPatologicos || {};
+                  const valor = ap[key] != null ? ap[key] : "";
                   const noAplicaCampo = !!(ap.noAplica && ap.noAplica[key]);
-                  const rows = Math.max(2, 1 + (String(valor).split('\n').length || 0));
+                  const rows = Math.max(2, 1 + (String(valor).split("\n").length || 0));
                   return (
                     <div key={key} className="border border-gray-100 rounded-xl p-4 bg-white hover:border-gray-200 transition-colors">
                       <div className="flex items-center justify-between mb-2">
@@ -1493,9 +1442,9 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                       <textarea
                         id={`antecedentes-${key}`}
                         value={valor}
-                        onChange={(e) => handleNestedChange('antecedentesPatologicos', key, e.target.value)}
+                        onChange={(e) => handleNestedChange("antecedentesPatologicos", key, e.target.value)}
                         disabled={readOnly || noAplicaCampo || !!ap.noAplicaGeneral}
-                        placeholder={noAplicaCampo || ap.noAplicaGeneral ? '—' : `Describa antecedentes ${label.toLowerCase()}…`}
+                        placeholder={noAplicaCampo || ap.noAplicaGeneral ? "—" : `Describa antecedentes ${label.toLowerCase()}…`}
                         rows={Math.min(6, rows)}
                         className="w-full py-2 px-3 border border-gray-200 rounded-lg text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 resize-y disabled:bg-gray-50 disabled:text-gray-400 text-sm"
                       />
@@ -1514,14 +1463,14 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
               <div className="mb-4">
                 <label className="block text-gray-700 text-sm font-bold mb-2">Plantillas Rápidas:</label>
                 <div className="flex flex-wrap gap-2">
-                  {['Dolor', 'Fiebre', 'Trauma', 'Dificultad Respiratoria', 'Dolor Abdominal', 'Cefalea', 'Vómitos', 'Diarrea'].map((plantilla) => (
+                  {["Dolor", "Fiebre", "Trauma", "Dificultad Respiratoria", "Dolor Abdominal", "Cefalea", "Vómitos", "Diarrea"].map((plantilla) => (
                     <button
                       key={plantilla}
                       type="button"
                       onClick={() => {
-                        const textoActual = atencionEmergenciaData.enfermedadProblemaActual || '';
+                        const textoActual = formData.enfermedadProblemaActual || "";
                         const nuevoTexto = textoActual ? `${textoActual}\n• ${plantilla}` : `• ${plantilla}`;
-                        handleChange({ target: { name: 'enfermedadProblemaActual', value: nuevoTexto } });
+                        handleChange({ target: { name: "enfermedadProblemaActual", value: nuevoTexto } });
                       }}
                       className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200 transition-colors"
                     >
@@ -1538,32 +1487,32 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                 <textarea
                   id="enfermedadProblemaActual"
                   name="enfermedadProblemaActual"
-                  value={atencionEmergenciaData.enfermedadProblemaActual}
+                  value={formData.enfermedadProblemaActual || ""}
                   onChange={handleChange}
                   rows={8}
                   minLength={20}
                   required
                   placeholder="Describa detalladamente el problema o enfermedad actual del paciente (mínimo 20 caracteres)..."
                   className={`shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline ${
-                    atencionEmergenciaData.enfermedadProblemaActual.length > 0 && atencionEmergenciaData.enfermedadProblemaActual.length < 20
-                      ? 'border-yellow-500'
-                      : ''
+                    (formData.enfermedadProblemaActual || '').length > 0 && (formData.enfermedadProblemaActual || '').length < 20
+                      ? "border-yellow-500"
+                      : ""
                   }`}
                 />
                 <div className="flex justify-between items-center mt-2">
                   <div className="text-sm text-gray-600">
-                    {atencionEmergenciaData.enfermedadProblemaActual.length < 20 ? (
+                    {(formData.enfermedadProblemaActual || '').length < 20 ? (
                       <span className="text-yellow-600">
-                        ⚠️ Mínimo 20 caracteres requeridos ({atencionEmergenciaData.enfermedadProblemaActual.length}/20)
+                        ⚠️ Mínimo 20 caracteres requeridos ({(formData.enfermedadProblemaActual || '').length}/20)
                       </span>
                     ) : (
                       <span className="text-green-600">
-                        ✅ Descripción completa ({atencionEmergenciaData.enfermedadProblemaActual.length} caracteres)
+                        ✅ Descripción completa ({(formData.enfermedadProblemaActual || '').length} caracteres)
                       </span>
                     )}
                   </div>
                   <div className="text-xs text-gray-500">
-                    {atencionEmergenciaData.enfermedadProblemaActual.length} caracteres
+                    {(formData.enfermedadProblemaActual || '').length} caracteres
                   </div>
                 </div>
               </div>
@@ -1595,9 +1544,9 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
 
               {/* Glasgow: Ocular (4), Verbal (5), Motora (6) – alertas ATLS */}
               {(() => {
-                const o = atencionEmergenciaData.examenFisico.glasgow_ocular;
-                const v = atencionEmergenciaData.examenFisico.glasgow_verbal;
-                const m = atencionEmergenciaData.examenFisico.glasgow_motora;
+                const o = formData.examenFisico.glasgow_ocular;
+                const v = formData.examenFisico.glasgow_verbal;
+                const m = formData.examenFisico.glasgow_motora;
                 const total = (o != null && v != null && m != null) ? o + v + m : null;
                 const sev = glasgowSeveridad(total);
                 const totalClase = total == null ? 'text-gray-500' : total >= 9 && total < 15 ? 'text-amber-700 font-semibold' : total < 9 ? 'text-red-700 font-bold animate-pulse' : 'text-gray-800';
@@ -1609,7 +1558,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Ocular (4)</label>
                         <select
-                          value={atencionEmergenciaData.examenFisico.glasgow_ocular ?? ''}
+                          value={formData.examenFisico.glasgow_ocular ?? ''}
                           onChange={(e) => handleNestedChange('examenFisico', 'glasgow_ocular', e.target.value === '' ? null : parseInt(e.target.value, 10))}
                           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-500 bg-white"
                           disabled={readOnly}
@@ -1621,7 +1570,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Verbal (5)</label>
                         <select
-                          value={atencionEmergenciaData.examenFisico.glasgow_verbal ?? ''}
+                          value={formData.examenFisico.glasgow_verbal ?? ''}
                           onChange={(e) => handleNestedChange('examenFisico', 'glasgow_verbal', e.target.value === '' ? null : parseInt(e.target.value, 10))}
                           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-500 bg-white"
                           disabled={readOnly}
@@ -1633,7 +1582,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Motora (6)</label>
                         <select
-                          value={atencionEmergenciaData.examenFisico.glasgow_motora ?? ''}
+                          value={formData.examenFisico.glasgow_motora ?? ''}
                           onChange={(e) => handleNestedChange('examenFisico', 'glasgow_motora', e.target.value === '' ? null : parseInt(e.target.value, 10))}
                           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-500 bg-white"
                           disabled={readOnly}
@@ -1661,7 +1610,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Derecha</label>
                     <select
-                      value={atencionEmergenciaData.examenFisico.pupilas_derecha ?? ''}
+                      value={formData.examenFisico.pupilas_derecha ?? ''}
                       onChange={(e) => handleNestedChange('examenFisico', 'pupilas_derecha', e.target.value)}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-500"
                       disabled={readOnly}
@@ -1673,7 +1622,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Izquierda</label>
                     <select
-                      value={atencionEmergenciaData.examenFisico.pupilas_izquierda ?? ''}
+                      value={formData.examenFisico.pupilas_izquierda ?? ''}
                       onChange={(e) => handleNestedChange('examenFisico', 'pupilas_izquierda', e.target.value)}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-500"
                       disabled={readOnly}
@@ -1695,7 +1644,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                       type="number"
                       step="0.1"
                       min={0}
-                      value={atencionEmergenciaData.examenFisico.tiempo_llenado_capilar ?? ''}
+                      value={formData.examenFisico.tiempo_llenado_capilar ?? ''}
                       onChange={(e) => handleNestedChange('examenFisico', 'tiempo_llenado_capilar', e.target.value === '' ? '' : e.target.value)}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
                       placeholder="Opcional (disponibilidad de insumos)"
@@ -1709,7 +1658,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                       step="0.1"
                       min={20}
                       max={600}
-                      value={atencionEmergenciaData.examenFisico.glicemia_capilar ?? ''}
+                      value={formData.examenFisico.glicemia_capilar ?? ''}
                       onChange={(e) => handleNestedChange('examenFisico', 'glicemia_capilar', e.target.value === '' ? null : parseFloat(e.target.value))}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
                       placeholder="Opcional (disponibilidad de insumos)"
@@ -1742,7 +1691,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                   </div>
                   <div key={`examen-regional-${examenRegionalRevision}`} className="space-y-3 max-h-[calc(100vh-20rem)] overflow-y-auto pr-1">
                     {EXAMEN_FISICO_REGIONAL_ITEMS.map(({ key, label, num }) => {
-                      const ef = atencionEmergenciaData.examenFisico || {};
+                      const ef = formData.examenFisico || {};
                       const esNormal = ef[`${key}_normal`] !== false;
                       return (
                         <div key={key} className="border-b border-gray-100 pb-3 last:border-0">
@@ -1782,7 +1731,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                 <div>
                   <h2 className="text-lg font-semibold text-gray-800 mb-3">I. Examen Físico de Trauma / Crítico</h2>
                   {(() => {
-                    const d = atencionEmergenciaData.tipoAccidenteViolenciaIntoxicacion || {};
+                    const d = formData.tipoAccidenteViolenciaIntoxicacion || {};
                     const seleccion = Array.isArray(d.seleccion) ? d.seleccion : [];
                     const hayEventoTraumatico = seleccion.length > 0;
                     return (
@@ -1790,7 +1739,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                         <textarea
                           id="examenFisicoTraumaCritico"
                           name="examenFisicoTraumaCritico"
-                          value={atencionEmergenciaData.examenFisicoTraumaCritico || ''}
+                          value={formData.examenFisicoTraumaCritico || ''}
                           onChange={handleChange}
                           disabled={readOnly}
                           placeholder="Describa hallazgos según esquema ABCDE (Vía aérea, Respiración, Circulación, Déficit neurológico, Exposición). ATLS / estándar internacional."
@@ -1814,7 +1763,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
             const esMasculino = /^(masculino|hombre)$/i.test(sexo);
             const edadAnios = paciente?.fecha_nacimiento ? differenceInYears(new Date(), parseISO(paciente.fecha_nacimiento)) : null;
             const esMEF = !esMasculino && edadAnios != null && edadAnios >= 10 && edadAnios <= 49;
-            const ep = atencionEmergenciaData.embarazoParto || {};
+            const ep = formData.embarazoParto || {};
             const estadoGestacion = ep.estadoGestacion || '';
             const embarazoVigente = estadoGestacion === 'SI' || estadoGestacion === 'SOSPECHA';
             const fumVal = ep.fum || '';
@@ -1828,8 +1777,8 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
             const fr = sv?.frecuencia_respiratoria != null ? Number(sv.frecuencia_respiratoria) : null;
             const temp = sv?.temperatura != null ? Number(sv.temperatura) : null;
             const spo2 = sv?.saturacion_oxigeno != null ? Number(sv.saturacion_oxigeno) : null;
-            const glasgow = (atencionEmergenciaData.examenFisico?.glasgow_ocular ?? null) != null && (atencionEmergenciaData.examenFisico?.glasgow_verbal ?? null) != null && (atencionEmergenciaData.examenFisico?.glasgow_motora ?? null) != null
-              ? (atencionEmergenciaData.examenFisico.glasgow_ocular || 0) + (atencionEmergenciaData.examenFisico.glasgow_verbal || 0) + (atencionEmergenciaData.examenFisico.glasgow_motora || 0)
+            const glasgow = (formData.examenFisico?.glasgow_ocular ?? null) != null && (formData.examenFisico?.glasgow_verbal ?? null) != null && (formData.examenFisico?.glasgow_motora ?? null) != null
+              ? (formData.examenFisico.glasgow_ocular || 0) + (formData.examenFisico.glasgow_verbal || 0) + (formData.examenFisico.glasgow_motora || 0)
               : null;
             const puntajeMama = embarazoVigente ? [
               pa != null && (pa < 90 || pa > 160) ? 1 : 0,
@@ -1884,7 +1833,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                       <section>
                         <h3 className="text-sm font-semibold text-gray-700 mb-2">¿Embarazo confirmado o sospecha?</h3>
                         <div className="flex flex-wrap gap-2">
-                          {['SI', 'NO', 'SOSPECHA'].map((v) => (
+                          {["SI", "NO", "SOSPECHA"].map((v) => (
                             <button key={v} type="button" disabled={deshabilitarSeccion}
                               onClick={() => handleNestedChange('embarazoParto', 'estadoGestacion', v)}
                               className={`py-2 px-4 rounded-lg text-sm font-medium border transition ${estadoGestacion === v
@@ -1987,7 +1936,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
           })()}
 
           {activeTab === 'examenesComplementarios' && (() => {
-            const ec = atencionEmergenciaData.examenesComplementarios || DEFAULT_EXAMENES_K();
+            const ec = formData.examenesComplementarios || DEFAULT_EXAMENES_K();
             const noAplica = !!ec.examenes_no_aplica;
             const items = ec.items || Object.fromEntries([...Array(16)].map((_, i) => [i + 1, false]));
             const observaciones = (ec.observaciones ?? '').toString();
@@ -1998,291 +1947,551 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
             const item15o16 = !!(items[15] || items[16]);
             const observacionesRequerida = item15o16;
             const placeholderObservaciones = items[15] && !items[16]
-              ? 'Justifique el motivo de la interconsulta y especialidad o servicio de referencia.'
+              ? 'Describa la interconsulta realizada: especialidad, hallazgos, conducta…'
               : items[16] && !items[15]
-                ? 'Describa los estudios u otros procedimientos solicitados y su justificación clínica.'
-                : (items[15] && items[16])
-                  ? 'Justifique la interconsulta y describa los demás estudios u otros procedimientos.'
-                  : 'Indique hallazgos, indicación clínica o justificación de los estudios solicitados.';
+                ? 'Describa otros estudios realizados o justifique por qué'
+                : 'Observaciones de los exámenes complementarios...';
+
             return (
               <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-                <div className="flex items-start justify-between gap-4 mb-4">
-                  <h2 className="text-lg font-semibold text-gray-800 uppercase tracking-wide" style={{ fontFamily: "'Inter','Roboto',sans-serif" }}>
-                    K. EXÁMENES COMPLEMENTARIOS
-                  </h2>
-                  <button
-                    type="button"
-                    onClick={() => setNoAplicaEstudiosK()}
-                    disabled={readOnly}
-                    className={`shrink-0 py-2 px-4 rounded-lg text-sm font-medium border transition ${noAplica
-                      ? 'bg-amber-100 text-amber-800 border-amber-300 cursor-default'
-                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
-                  >
-                    No Aplica
-                  </button>
+                <h2 className="text-xl font-semibold text-gray-800 mb-4">K. Exámenes Complementarios</h2>
+
+                <div className="mb-6 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                  <label className="flex items-center justify-between gap-4 cursor-pointer">
+                    <span className="text-sm font-medium text-gray-700">No aplica (ningún examen complementario)</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={noAplica}
+                        onChange={setNoAplicaEstudiosK}
+                        disabled={readOnly}
+                        className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm font-medium text-gray-600">No aplica</span>
+                    </div>
+                  </label>
                 </div>
-                {noAplica && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800 text-sm mb-4">
-                    No se solicitan exámenes complementarios para esta atención.
-                  </div>
-                )}
-                {!noAplica && (
-                  <>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-4">
-                      {ITEMS_SECCION_K.map(({ id, label }) => (
-                        <label
-                          key={id}
-                          className={`flex items-center gap-2 py-2 px-3 rounded-lg border cursor-pointer transition ${items[id] ? 'bg-blue-50 border-blue-200' : 'bg-gray-50/50 border-gray-200 hover:border-gray-300'}`}
-                        >
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                  {/* Grupo 1: Laboratorio */}
+                  <div>
+                    <div className="flex items-baseline gap-2 mb-3">
+                      <h3 className="text-base font-semibold text-gray-800">Laboratorio</h3>
+                      {labCount > 0 && <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">{labCount} ítems</span>}
+                    </div>
+                    <div className="space-y-2">
+                      {ITEMS_SECCION_K.filter(i => i.categoria === 'LAB').map((item) => (
+                        <label key={item.id} className="flex items-center gap-2 cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={!!items[id]}
-                            onChange={(e) => setExamenItemK(id, e.target.checked)}
+                            checked={!!items[item.id]}
+                            onChange={(e) => setExamenItemK(item.id, e.target.checked)}
                             disabled={deshabilitarK}
-                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                           />
-                          <span className="text-sm font-medium text-gray-700">{label}</span>
+                          <span className="text-sm text-gray-700">{item.label}</span>
+                          {((item.id === 1 || item.id === 2) && !!items[item.id]) && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setShowOrdenExamenModal(true); }}
+                              className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
+                              disabled={deshabilitarK}
+                            >
+                              Generar Orden (010)
+                            </button>
+                          )}
                         </label>
                       ))}
-                    </div>
-                    <div className="mb-4 py-2 px-3 rounded-lg bg-gray-50 border border-gray-100 text-sm text-gray-700">
-                      Solicitudes actuales: <strong>{labCount}</strong> Laboratorio, <strong>{imagenCount}</strong> Imagen, <strong>{interconsultaCount}</strong> Interconsulta.
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">OBSERVACIONES:</label>
-                      <textarea
-                        value={observaciones}
-                        onChange={(e) => handleNestedChange('examenesComplementarios', 'observaciones', e.target.value)}
-                        placeholder={placeholderObservaciones}
-                        disabled={deshabilitarK}
-                        rows={4}
-                        className={`w-full border rounded-lg py-2 px-3 text-gray-700 shadow-sm focus:ring-1 focus:ring-blue-400 focus:border-blue-400 placeholder-gray-400 disabled:bg-gray-50 disabled:cursor-not-allowed ${observacionesRequerida && !observaciones.trim() ? 'border-red-500 focus:ring-red-400 focus:border-red-400' : 'border-gray-200'}`}
-                      />
-                      {observacionesRequerida && !observaciones.trim() && (
-                        <p className="mt-1 text-xs text-red-600">Obligatorio cuando se marca Interconsulta (15) u Otros (16).</p>
+                      {labCount > 0 && (
+                        <p className="text-xs text-blue-700 mt-2 flex items-center gap-1">
+                          <span className="inline-block w-2 h-2 rounded-full bg-blue-500" /> Se requiere llenar el Formulario 010 (Orden de Exámenes).
+                        </p>
                       )}
                     </div>
+                  </div>
+
+                  {/* Grupo 2: Imagen y Otros */}
+                  <div>
+                    <div className="flex items-baseline gap-2 mb-3">
+                      <h3 className="text-base font-semibold text-gray-800">Imagen / Estudios / Interconsulta</h3>
+                      {(imagenCount > 0 || interconsultaCount > 0 || !!items[16]) && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                          {imagenCount + interconsultaCount + (items[16] ? 1 : 0)} ítems
+                        </span>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      {ITEMS_SECCION_K.filter(i => i.categoria === 'IMAGEN' || i.categoria === 'INTERCONSULTA' || i.categoria === 'OTROS').map((item) => (
+                        <label key={item.id} className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={!!items[item.id]}
+                            onChange={(e) => setExamenItemK(item.id, e.target.checked)}
+                            disabled={deshabilitarK}
+                            className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="text-sm text-gray-700">{item.label}</span>
+                          {((item.id >= 8 && item.id <= 14) && !!items[item.id]) && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setShowOrdenImagenModal(true); }}
+                              className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
+                              disabled={deshabilitarK}
+                            >
+                              Generar Orden (012)
+                            </button>
+                          )}
+                        </label>
+                      ))}
+                      {(imagenCount > 0) && (
+                        <p className="text-xs text-blue-700 mt-2 flex items-center gap-1">
+                          <span className="inline-block w-2 h-2 rounded-full bg-blue-500" /> Se requiere llenar el Formulario 012 (Orden de Imagen).
+                        </p>
+                      )}
+                      {(interconsultaCount > 0) && (
+                        <p className="text-xs text-blue-700 mt-2 flex items-center gap-1">
+                          <span className="inline-block w-2 h-2 rounded-full bg-blue-500" /> Se requiere llenar el Formulario 007 (Interconsulta).
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Observaciones de los Exámenes Complementarios (Sección K) */}
+                <div className="mb-4">
+                  <label htmlFor="observacionesExamenesK" className="block text-gray-700 text-sm font-bold mb-2">
+                    Observaciones de los Estudios{observacionesRequerida && <span className="text-red-500"> *</span>}
+                  </label>
+                  <textarea
+                    id="observacionesExamenesK"
+                    name="examenesComplementarios.observaciones"
+                    value={observaciones}
+                    onChange={(e) => handleNestedChange('examenesComplementarios', 'observaciones', e.target.value)}
+                    minLength={observacionesRequerida ? 20 : undefined}
+                    required={observacionesRequerida}
+                    disabled={deshabilitarK}
+                    placeholder={placeholderObservaciones}
+                    className={`shadow appearance-none border rounded w-full py-2 px-3 leading-tight focus:outline-none focus:shadow-outline ${
+                      observacionesRequerida && observaciones.length > 0 && observaciones.length < 20 ? 'border-rose-400' : 'text-gray-700'
+                    }`}
+                    rows={4}
+                  />
+                  {observacionesRequerida && (
+                    <div className="flex justify-between mt-1">
+                      <span className={`text-xs ${observaciones.length < 20 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                        {observaciones.length < 20 ? `⚠️ Mínimo 20 caracteres requeridos (${observaciones.length}/20) para estudios marcados.` : '✅ Descripción completa.'}
+                      </span>
+                      <span className="text-xs text-gray-500">Justificación normativa.</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+          {activeTab === 'diagnosticos' && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4">Diagnósticos (L y M)</h2>
+              <p className="text-sm text-gray-500 mb-4">Gestione los diagnósticos principales y complementarios según la normativa MSP.</p>
+              {/* Aquí se renderizará el componente DiagnosticosCIE10, que ya está en la página padre */}
+              {/* <DiagnosticosCIE10 atencionId={existingAtencionIdRef.current || atencionData?.id} readOnly={readOnly} /> */}
+              <div className="text-center text-gray-500 italic p-4 border rounded-lg">
+                Los diagnósticos se gestionan directamente desde la sección de "Diagnósticos" en la vista principal.
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'planTratamiento' && (() => {
+            const plan = formData.planTratamiento || [];
+            const canAddPlanItem = newPlanItem.medicamento.trim() !== '';
+
+            return (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                <h2 className="text-xl font-semibold text-gray-800 mb-4">N. Plan de Tratamiento</h2>
+                <p className="text-sm text-gray-500 mb-4">Registre las indicaciones médicas y tratamientos. Puede generar órdenes y recetas desde aquí.</p>
+
+                {/* Lista de medicamentos/acciones */}
+                <div className="mb-6 space-y-4">
+                  {plan.length === 0 ? (
+                    <p className="text-gray-500 italic text-sm p-4 bg-gray-50 rounded-lg">No hay ítems en el plan de tratamiento.</p>
+                  ) : (
+                    plan.map((item, index) => (
+                      <div key={index} className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-100 rounded-lg shadow-sm">
+                        <div className="flex-1 space-y-1">
+                          <p className="font-bold text-blue-800 text-base">{item.medicamento}</p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-sm text-gray-700">
+                            {item.via && <div><span className="font-medium text-gray-600">Vía:</span> {item.via}</div>}
+                            {item.dosis && <div><span className="font-medium text-gray-600">Dosis:</span> {item.dosis}</div>}
+                            {item.posologia && <div><span className="font-medium text-gray-600">Posología:</span> {item.posologia}</div>}
+                            {item.dias && <div><span className="font-medium text-gray-600">Días:</span> {item.dias}</div>}
+                          </div>
+                        </div>
+                        {!readOnly && (
+                          <button
+                            type="button"
+                            onClick={() => removeArrayItem('planTratamiento', index)}
+                            className="shrink-0 p-1.5 text-red-600 hover:bg-red-50 rounded-md"
+                            title="Eliminar ítem"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Formulario para añadir ítem al plan de tratamiento */}
+                {!readOnly && (
+                  <div className="border border-gray-200 rounded-xl p-5 bg-white">
+                    <h3 className="text-base font-semibold text-gray-800 mb-3">Añadir nuevo ítem al plan</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div>
+                        <label htmlFor="new-medicamento" className="block text-sm font-medium text-gray-700 mb-1">Medicamento/Acción <span className="text-red-500">*</span></label>
+                        <input
+                          type="text"
+                          id="new-medicamento"
+                          value={newPlanItem.medicamento}
+                          onChange={(e) => setNewPlanItem({ ...newPlanItem, medicamento: e.target.value })}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-gray-700 focus:ring-1 focus:ring-blue-400"
+                          placeholder="Ej: Ibuprofeno, Oxígeno, Reposo"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="new-via" className="block text-sm font-medium text-gray-700 mb-1">Vía</label>
+                        <input
+                          type="text"
+                          id="new-via"
+                          value={newPlanItem.via || ''}
+                          onChange={(e) => setNewPlanItem({ ...newPlanItem, via: e.target.value })}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-gray-700 focus:ring-1 focus:ring-blue-400"
+                          placeholder="Ej: Oral, IV, IM"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="new-dosis" className="block text-sm font-medium text-gray-700 mb-1">Dosis</label>
+                        <input
+                          type="text"
+                          id="new-dosis"
+                          value={newPlanItem.dosis || ''}
+                          onChange={(e) => setNewPlanItem({ ...newPlanItem, dosis: e.target.value })}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-gray-700 focus:ring-1 focus:ring-blue-400"
+                          placeholder="Ej: 400mg, 5L/min"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="new-posologia" className="block text-sm font-medium text-gray-700 mb-1">Posología</label>
+                        <input
+                          type="text"
+                          id="new-posologia"
+                          value={newPlanItem.posologia || ''}
+                          onChange={(e) => setNewPlanItem({ ...newPlanItem, posologia: e.target.value })}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-gray-700 focus:ring-1 focus:ring-blue-400"
+                          placeholder="Ej: Cada 8 horas, Dosis única"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="new-dias" className="block text-sm font-medium text-gray-700 mb-1">Días</label>
+                        <input
+                          type="number"
+                          id="new-dias"
+                          min={1}
+                          value={newPlanItem.dias ?? ''}
+                          onChange={(e) => setNewPlanItem({ ...newPlanItem, dias: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-gray-700 focus:ring-1 focus:ring-blue-400"
+                          placeholder="Ej: 3, 5"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-end mt-4">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (canAddPlanItem) {
+                            addArrayItem('planTratamiento', newPlanItem);
+                            setNewPlanItem({ medicamento: '', via: '', dosis: '', posologia: '', dias: null }); // Limpiar formulario
+                          } else {
+                            alert('El campo "Medicamento/Acción" es obligatorio.');
+                          }
+                        }}
+                        disabled={!canAddPlanItem}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-sm font-medium flex items-center gap-2"
+                      >
+                        <PlusCircle className="w-4 h-4" />
+                        Añadir a Plan
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-6">
+                  <label htmlFor="observacionesPlanTratamiento" className="block text-sm font-medium text-gray-700 mb-1">Observaciones</label>
+                  <textarea
+                    id="observacionesPlanTratamiento"
+                    name="observacionesPlanTratamiento"
+                    value={formData.observacionesPlanTratamiento || ''}
+                    onChange={handleChange}
+                    rows={4}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-gray-700 focus:ring-1 focus:ring-blue-400"
+                    placeholder="Observaciones adicionales sobre el plan de tratamiento..."
+                  />
+                </div>
+
+                <div className="mt-6 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowRecetaModal(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 text-sm font-medium"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-prescription-rx"><path d="M2 13v-1a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2Z"/><path d="M14 14V8h2a2 2 0 0 1 2 2v4"/><path d="M7 10h1v4"/><path d="M17 17h1v4"/><path d="M14 7h1V3a1 1 0 0 0-1-1H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2"/><path d="M15 21h4a2 2 0 0 0 2-2v-5a2 2 0 0 0-2-2h-3"/></svg>
+                    Generar Receta Médica
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowOrdenExamenModal(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 text-sm font-medium"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-clipboard-plus"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 13h6"/><path d="M12 10v6"/></svg>
+                    Generar Orden Exámenes (010)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowOrdenImagenModal(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 text-sm font-medium"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-camera"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+                    Generar Orden Imagen (012)
+                  </button>
+                </div>
+                {atencionData && existingAtencionIdRef.current && (
+                  <>
+                    <RecetaMedicaForm
+                      isOpen={showRecetaModal}
+                      onClose={() => setShowRecetaModal(false)}
+                      atencionId={existingAtencionIdRef.current}
+                      pacienteId={admisionData?.pacienteId}
+                    />
+                    <OrdenExamenForm
+                      isOpen={showOrdenExamenModal}
+                      onClose={() => setShowOrdenExamenModal(false)}
+                      atencionId={existingAtencionIdRef.current}
+                      pacienteId={admisionData?.pacienteId}
+                    />
+                    <OrdenImagenForm
+                      isOpen={showOrdenImagenModal}
+                      onClose={() => setShowOrdenImagenModal(false)}
+                      atencionId={existingAtencionIdRef.current}
+                      pacienteId={admisionData?.pacienteId}
+                    />
                   </>
                 )}
               </div>
             );
           })()}
 
-          {activeTab === 'diagnosticos' && (
-            <div>
-              {(atencionData?.id ?? atencionIdFromSave ?? existingAtencionIdRef.current) ? (
-                <DiagnosticosCIE10
-                  atencionId={atencionData?.id ?? atencionIdFromSave ?? existingAtencionIdRef.current}
-                  readOnly={readOnly}
-                />
-              ) : (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-6 text-amber-800">
-                  <p className="font-medium">Guarde la atención primero</p>
-                  <p className="mt-1 text-sm text-amber-700">
-                    Escriba algo en el formulario (por ejemplo en Atención Inicial) y espere el autoguardado, o guarde la atención para poder agregar y gestionar diagnósticos CIE-10 desde esta pestaña.
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'planTratamiento' && (
-            <div>
-              <h2 className="text-xl font-semibold mb-4 text-gray-800">Plan de Tratamiento</h2>
-              {atencionEmergenciaData.planTratamiento.map((item, index) => (
-                <div key={index} className="grid grid-cols-6 gap-2 mb-2">
-                  <input
-                    type="text"
-                    placeholder="Medicamento"
-                    value={item.medicamento}
-                    onChange={(e) => handleArrayChange('planTratamiento', index, 'medicamento', e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline col-span-2"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Vía"
-                    value={item.via}
-                    onChange={(e) => handleArrayChange('planTratamiento', index, 'via', e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Dosis"
-                    value={item.dosis}
-                    onChange={(e) => handleArrayChange('planTratamiento', index, 'dosis', e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Posología"
-                    value={item.posologia}
-                    onChange={(e) => handleArrayChange('planTratamiento', index, 'posologia', e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                  <input
-                    type="number"
-                    placeholder="Días"
-                    value={item.dias || ''}
-                    onChange={(e) => handleArrayChange('planTratamiento', index, 'dias', e.target.value === '' ? null : parseInt(e.target.value, 10))}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeArrayItem('planTratamiento', index)}
-                    className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded col-span-full"
-                  >
-                    Eliminar
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={() => addArrayItem('planTratamiento', { medicamento: '', via: '', dosis: '', posologia: '', dias: null })}
-                className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded mb-4"
-              >
-                Agregar Medicamento
-              </button>
-              <div className="mb-4">
-                <label htmlFor="observacionesPlanTratamiento" className="block text-gray-700 text-sm font-bold mb-2">Observaciones del Plan de Tratamiento:</label>
-                <textarea
-                  id="observacionesPlanTratamiento"
-                  name="observacionesPlanTratamiento"
-                  value={atencionEmergenciaData.observacionesPlanTratamiento}
-                  onChange={handleChange}
-                  className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  rows="3"
-                ></textarea>
-              </div>
-            </div>
-          )}
-
           {activeTab === 'condicionEgreso' && (
-            <div>
-              <h2 className="text-xl font-semibold mb-4 text-gray-800">Condición al Egreso</h2>
-              {signosVitalesData && signosVitalesData.sin_constantes_vitales && (
-                <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-4">
-                  <p className="text-red-800 font-bold text-lg mb-2">⚠️ IMPORTANTE: Paciente llegó sin constantes vitales</p>
-                  <p className="text-red-700 text-sm mb-2">
-                    Si confirma el fallecimiento, seleccione <strong>"FALLECIDO"</strong> en la condición de egreso.
-                  </p>
-                </div>
-              )}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4">O. Condición al Egreso de Emergencia</h2>
+              
               <div className="mb-4">
                 <label htmlFor="condicionEgreso" className="block text-gray-700 text-sm font-bold mb-2">
-                  Condición de Egreso: <span className="text-red-600">*</span>
+                  Condición de Egreso: <span className="text-red-500">*</span>
                 </label>
                 <select
                   id="condicionEgreso"
                   name="condicionEgreso"
-                  value={atencionEmergenciaData.condicionEgreso}
+                  value={formData.condicionEgreso || ''}
                   onChange={handleChange}
-                  className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
                   required
+                  className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
                 >
-                  <option value="">Seleccione...</option>
-                  <option value="HOSPITALIZACION">HOSPITALIZACIÓN</option>
-                  <option value="ALTA">ALTA</option>
-                  <option value="ESTABLE">ESTABLE</option>
-                  <option value="INESTABLE">INESTABLE</option>
-                  <option value="FALLECIDO" className={signosVitalesData && signosVitalesData.sin_constantes_vitales ? 'bg-red-100 font-bold' : ''}>
-                    FALLECIDO {signosVitalesData && signosVitalesData.sin_constantes_vitales ? '(Recomendado)' : ''}
-                  </option>
-                  <option value="ALTA_DEFINITIVA">ALTA DEFINITIVA</option>
-                  <option value="CONSULTA_EXTERNA">CONSULTA EXTERNA</option>
-                  <option value="OBSERVACION_EMERGENCIA">OBSERVACIÓN EN EMERGENCIA</option>
+                  <option value="">Seleccionar condición...</option>
+                  <option value="HOSPITALIZACION">Hospitalización</option>
+                  <option value="ALTA">Alta</option>
+                  <option value="ESTABLE">Estable</option>
+                  <option value="INESTABLE">Inestable</option>
+                  <option value="FALLECIDO">Fallecido</option>
+                  <option value="ALTA_DEFINITIVA">Alta definitiva</option>
+                  <option value="CONSULTA_EXTERNA">Consulta externa</option>
+                  <option value="OBSERVACION_EMERGENCIA">Observación de emergencia</option>
                 </select>
-                {signosVitalesData && signosVitalesData.sin_constantes_vitales && atencionEmergenciaData.condicionEgreso !== 'FALLECIDO' && (
-                  <p className="text-red-600 text-xs mt-1">
-                    ⚠️ Recuerde: Este paciente llegó sin constantes vitales. Debe confirmar la condición de egreso.
-                  </p>
-                )}
               </div>
-              <div className="mb-4">
-                <label htmlFor="referenciaEgreso" className="block text-gray-700 text-sm font-bold mb-2">Referencia de Egreso:</label>
-                <input
-                  type="text"
-                  id="referenciaEgreso"
-                  name="referenciaEgreso"
-                  value={atencionEmergenciaData.referenciaEgreso}
-                  onChange={handleChange}
-                  className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                />
-              </div>
-              <div className="mb-4">
-                <label htmlFor="establecimientoEgreso" className="block text-gray-700 text-sm font-bold mb-2">Establecimiento de Egreso:</label>
-                <input
-                  type="text"
-                  id="establecimientoEgreso"
-                  name="establecimientoEgreso"
-                  value={atencionEmergenciaData.establecimientoEgreso}
-                  onChange={handleChange}
-                  className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                />
-              </div>
+
+              {(formData.condicionEgreso === 'HOSPITALIZACION' || formData.condicionEgreso === 'CONSULTA_EXTERNA') && (
+                <div className="mb-4">
+                  <label htmlFor="referenciaEgreso" className="block text-gray-700 text-sm font-bold mb-2">
+                    Referencia a: <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    id="referenciaEgreso"
+                    name="referenciaEgreso"
+                    value={formData.referenciaEgreso || ''}
+                    onChange={handleChange}
+                    required
+                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                    placeholder="Especialidad, Servicio, Nivel..."
+                  />
+                </div>
+              )}
+              {(formData.condicionEgreso === 'ALTA' || formData.condicionEgreso === 'ALTA_DEFINITIVA' || formData.condicionEgreso === 'OBSERVACION_EMERGENCIA') && (
+                <div className="mb-4">
+                  <label htmlFor="establecimientoEgreso" className="block text-gray-700 text-sm font-bold mb-2">
+                    Establecimiento de Egreso: <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    id="establecimientoEgreso"
+                    name="establecimientoEgreso"
+                    value={formData.establecimientoEgreso || ''}
+                    onChange={handleChange}
+                    required
+                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                    placeholder="Ej: Domicilio, Hospital Básico, Primer Nivel..."
+                  />
+                </div>
+              )}
+{formData.condicionEgreso === 'FALLECIDO' && (
+                <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 shrink-0" />
+                  <div>
+                    ⚠️  Ha seleccionado Condición de Egreso: FALLECIDO. Asegúrese de haber completado la Hora de Atención correctamente y los campos de defunción en el sistema.
+                    Esta acción es irreversible y cierra la atención del paciente.
+                  </div>
+                </div>
+              )}
             </div>
           )}
-        </div>
+        </div> {/* Cierre del contenido de pestañas (bg-white) */}
+        </fieldset>
 
-        {/* Botones de acción mejorados */}
-        <div className="flex justify-between mt-6 pt-6 border-t border-gray-200">
+        {/* Botones de acción: Guardar y Finalizar */}
+        {!readOnly && (
+          <div className="flex justify-end gap-3 mt-6">
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-6 py-3 bg-blue-600 text-white rounded-lg shadow-md hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {saving ? (
+                <>
+                  <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                  Guardando...
+                </>
+              ) : (
+                <>
+                  <FileText className="w-5 h-5" />
+                  Guardar Atención (Pendiente de Firma)
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* Modales */}
+        <ModalMefObstetricia
+          isOpen={showModalMefObstetricia}
+          onClose={() => setShowModalMefObstetricia(false)}
+        />
+        <ModalObservacionesEstudios
+          isOpen={showModalObservacionesEstudios}
+          onClose={() => setShowModalObservacionesEstudios(false)}
+        />
+        <ConfirmFallecidoModal
+          isOpen={showConfirmFallecidoModal}
+          onConfirm={() => {
+            setFormData(prev => ({ ...prev, condicionEgreso: 'FALLECIDO' }));
+            setShowConfirmFallecidoModal(false);
+          }}
+          onCancel={() => {
+            setFormData(prev => ({ ...prev, condicionEgreso: '' }));
+            setShowConfirmFallecidoModal(false);
+          }}
+        />
+      </form>
+    </div>
+  );
+};
+
+// Componente para el modal de MEF
+const ModalMefObstetricia = ({ isOpen, onClose }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 shadow-xl max-w-sm mx-auto">
+        <h3 className="text-lg font-bold text-amber-700 mb-4">⚠️ Validación de Obstetricia</h3>
+        <p className="text-gray-700 mb-4">
+          La paciente está en edad fértil. Debe confirmar si existe embarazo o sospecha en la <strong>Sección J: Obstetricia</strong>.
+          Esto es obligatorio para asegurar el cumplimiento normativo MSP.
+        </p>
+        <button
+          onClick={onClose}
+          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm font-medium"
+        >
+          Entendido
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// Componente para el modal de Observaciones de Estudios
+const ModalObservacionesEstudios = ({ isOpen, onClose }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 shadow-xl max-w-sm mx-auto">
+        <h3 className="text-lg font-bold text-amber-700 mb-4">⚠️ Observaciones de Estudios Requeridas</h3>
+        <p className="text-gray-700 mb-4">
+          Ha marcado estudios complementarios en la <strong>Sección K</strong>. Es obligatorio añadir una descripción u observación en el campo correspondiente
+          para justificar la solicitud y adjuntar resultados, según la normativa MSP.
+        </p>
+        <button
+          onClick={onClose}
+          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm font-medium"
+        >
+          Entendido
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// Nuevo Modal de Confirmación para Egreso "FALLECIDO"
+const ConfirmFallecidoModal = ({ isOpen, onConfirm, onCancel }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 bg-red-800 bg-opacity-70 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-8 shadow-2xl max-w-lg mx-auto border-t-4 border-red-500">
+        <div className="flex items-center gap-4 mb-5">
+          <AlertCircle className="w-8 h-8 text-red-600 shrink-0" />
+          <h3 className="text-xl font-bold text-red-800">Confirmación de Egreso: FALLECIDO</h3>
+        </div>
+        <p className="text-gray-700 mb-6 text-base">
+          Está a punto de registrar la condición de egreso como <strong>FALLECIDO</strong>.
+          Esta acción cerrará la atención del paciente y se registrará la fecha y hora de defunción en el sistema.
+          <br /><br />
+          <strong>Por favor, confirme que ha verificado los datos y que esta información es correcta.</strong>
+          Una vez guardado, este registro no podrá ser modificado.
+        </p>
+        <div className="flex justify-end gap-3">
           <button
             type="button"
-            onClick={() => navigate('/lista-espera')}
-            className="px-6 py-3 bg-gray-500 hover:bg-gray-600 text-white font-semibold rounded-lg transition-colors shadow-md"
+            onClick={onCancel}
+            className="px-5 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 text-sm font-medium"
           >
-            ← Volver a Lista
+            Cancelar y Cambiar
           </button>
           <button
-            type="submit"
-            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors shadow-md disabled:bg-gray-400 disabled:cursor-not-allowed"
-            disabled={loading || readOnly}
+            type="button"
+            onClick={onConfirm}
+            className="px-5 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium"
           >
-            {loading ? 'Guardando...' : 'Guardar Progreso'}
+            Confirmar Fallecimiento
           </button>
         </div>
-        </fieldset>
-      </form>
-
-      {/* Modal MEF: Paciente en edad fértil sin estado gestación en Sección J */}
-      {showModalMefObstetricia && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowModalMefObstetricia(false)}>
-          <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6 max-w-md mx-4" onClick={e => e.stopPropagation()}>
-            <p className="text-gray-800 font-medium mb-4">
-              Paciente en edad fértil: Por favor confirme si existe embarazo o sospecha para completar la Sección J.
-            </p>
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setShowModalMefObstetricia(false)}
-                className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium">
-                Cerrar
-              </button>
-              <button type="button" onClick={() => { setShowModalMefObstetricia(false); setActiveTab('embarazoParto'); }}
-                className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium">
-                Ir a Obstetricia
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showModalObservacionesEstudios && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowModalObservacionesEstudios(false)}>
-          <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6 max-w-md mx-4" onClick={e => e.stopPropagation()}>
-            <p className="text-gray-800 font-medium mb-4">
-              Por favor, ingrese la justificación clínica o hallazgos para los estudios solicitados.
-            </p>
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setShowModalObservacionesEstudios(false)}
-                className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium">
-                Cerrar
-              </button>
-              <button type="button" onClick={() => { setShowModalObservacionesEstudios(false); setActiveTab('examenesComplementarios'); }}
-                className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium">
-                Ir a Estudios
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 };

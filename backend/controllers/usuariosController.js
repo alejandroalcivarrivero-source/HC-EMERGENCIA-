@@ -42,6 +42,7 @@ const CatEstadoPaciente = require('../models/cat_estado_paciente'); // Importar 
 const CatTriaje = require('../models/cat_triaje'); // Importar el modelo CatTriaje
 const AtencionEmergencia = require('../models/atencionEmergencia'); // Importar el modelo AtencionEmergencia
 const { createOrUpdateAtencionPacienteEstado } = require('./atencionPacienteEstadoController'); // Importar la función unificada
+const { validarCedula } = require('../utils/validador'); // Importar validador de cédula
 
 // Controladores para catálogos
 exports.obtenerRoles = async (req, res) => {
@@ -409,6 +410,13 @@ exports.crearRegistroAdmision = async (req, res) => {
     motivoConsultaSintomaId // Mantener por si se envía directamente el ID
 
   } = req.body;
+
+  // ** VALIDACIÓN DE CÉDULA **
+  if (tipoIdentificacion === 'Cédula' && numeroIdentificacion && !validarCedula(numeroIdentificacion)) {
+    console.log(`[crearRegistroAdmision] Cédula inválida detectada: ${numeroIdentificacion}`);
+    return res.status(400).json({ mensaje: 'Cédula inválida' });
+  }
+  // ** FIN VALIDACIÓN DE CÉDULA **
 
   try {
     const sequelize = require('../config/database'); // Importar la instancia de sequelize localmente
@@ -1077,6 +1085,13 @@ exports.actualizarPaciente = async (req, res) => {
     // Información adicional del frontend (no se mapea directamente a modelos)
     isUnderTwoYears,
   } = req.body;
+
+  // ** VALIDACIÓN DE CÉDULA **
+  if (tipoIdentificacion === 'Cédula' && numeroIdentificacion && !validarCedula(numeroIdentificacion)) {
+    console.log(`[actualizarPaciente] Cédula inválida detectada: ${numeroIdentificacion}`);
+    return res.status(400).json({ mensaje: 'Cédula inválida' });
+  }
+  // ** FIN VALIDACIÓN DE CÉDULA **
 
   try {
     const sequelize = require('../config/database');

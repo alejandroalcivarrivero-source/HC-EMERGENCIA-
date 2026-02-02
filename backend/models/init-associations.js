@@ -45,7 +45,7 @@ const LogReasignacionesMedicas = require('./logReasignacionesMedicas'); // Nuevo
 
 function initAssociations() {
   // Asociaciones de Residencias
-  Residencias.belongsTo(Provincias, { foreignKey: 'provincia_residencia_id', as: 'ProvinciaResidencia' });
+  Residencias.belongsTo(Provincias, { foreignKey: 'provincia_residencia_id', as: 'ResidenciaProvincia' });
   Residencias.belongsTo(Cantones, { foreignKey: 'canton_residencia_id', as: 'CantonResidencia' });
   Residencias.belongsTo(Parroquias, { foreignKey: 'parroquia_residencia_id', as: 'ParroquiaResidencia' });
   Residencias.belongsTo(Pacientes, { foreignKey: 'paciente_id' });

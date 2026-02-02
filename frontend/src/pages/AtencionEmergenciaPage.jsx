@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { format } from 'date-fns'; // Para manejar fechas y horas
 import Header from '../components/Header';
 import PatientBanner from '../components/PatientBanner';
 import AtencionEmergenciaForm from '../components/AtencionEmergenciaForm';
@@ -10,11 +11,14 @@ import FirmaElectronica from '../components/FirmaElectronica';
 import { CheckCircle2 } from 'lucide-react';
 import { useSidebar } from '../contexts/SidebarContext';
 
+const API_BASE = 'http://localhost:3001/api'; // Definir API_BASE aquí
+
 const AtencionEmergenciaPage = () => {
   const { admisionId } = useParams();
   const navigate = useNavigate();
   const { isSidebarOpen } = useSidebar();
   const [atencion, setAtencion] = useState(null);
+  const [formData, setFormData] = useState({}); // Nuevo estado para los datos del formulario
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [atencionesAnteriores, setAtencionesAnteriores] = useState([]);
@@ -35,13 +39,13 @@ const AtencionEmergenciaPage = () => {
         }
 
         // Obtener datos de la admisión primero
-        const admisionDetailsResponse = await axios.get(`http://localhost:3001/api/admisiones/${admisionId}`, {
+        const admisionDetailsResponse = await axios.get(`${API_BASE}/admisiones/${admisionId}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setAdmisionDetails(admisionDetailsResponse.data);
 
         // Obtener signos vitales (último + historial para tendencia)
-        const signosVitalesResponse = await axios.get(`http://localhost:3001/api/signos-vitales/${admisionId}?historial=true`, {
+        const signosVitalesResponse = await axios.get(`${API_BASE}/signos-vitales/${admisionId}?historial=true`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         const historial = Array.isArray(signosVitalesResponse.data) ? signosVitalesResponse.data : [];
@@ -64,7 +68,7 @@ const AtencionEmergenciaPage = () => {
         // Obtener motivo de consulta y datos de pre-llenado
         try {
           const prellenadoResponse = await axios.get(
-            `http://localhost:3001/api/pendientes-firma/prellenado/${admisionId}`,
+            `${API_BASE}/pendientes-firma/prellenado/${admisionId}`,
             { headers: { Authorization: `Bearer ${token}` } }
           );
           setMotivoConsulta(prellenadoResponse.data.motivoConsulta);
@@ -74,8 +78,10 @@ const AtencionEmergenciaPage = () => {
 
         // Obtener la atención de emergencia actual (si existe)
         let currentAtencion = null;
+        let borradorData = null;
+
         try {
-          const atencionResponse = await axios.get(`http://localhost:3001/api/atencion-emergencia/admision/${admisionId}`, {
+          const atencionResponse = await axios.get(`${API_BASE}/atencion-emergencia/admision/${admisionId}`, {
             headers: { Authorization: `Bearer ${token}` }
           });
           currentAtencion = atencionResponse.data;
@@ -89,7 +95,6 @@ const AtencionEmergenciaPage = () => {
                 : currentAtencion.antecedentesPatologicos;
               
               if (antecedentes.alergicos && antecedentes.alergicos.trim()) {
-                // Dividir por comas o punto y coma
                 const alergiasArray = antecedentes.alergicos
                   .split(/[,;]/)
                   .map(a => a.trim())
@@ -97,15 +102,77 @@ const AtencionEmergenciaPage = () => {
                 setAlergias(alergiasArray);
               }
             } catch (e) {
-              console.error('Error al parsear antecedentes:', e);
+              console.error('Error al parsear antecedentes (AtencionEmergenciaPage):', e);
             }
           }
         } catch (err) {
           if (err.response && err.response.status === 404) {
-            console.log('No existe atención de emergencia previa para esta admisión.');
+            console.log('No existe atención de emergencia previa para esta admisión, se buscará borrador.');
           } else {
             throw err;
           }
+        }
+
+        // Intentar cargar el borrador si existe un ID de atención (o admisionId si no hay atención)
+        const idParaBorrador = currentAtencion?.id || parseInt(admisionId, 10);
+        if (idParaBorrador) {
+          try {
+            const borradorResponse = await axios.get(`${API_BASE}/atencion-emergencia/borrador/${idParaBorrador}`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            if (borradorResponse.data && borradorResponse.data.datos) {
+              borradorData = borradorResponse.data.datos;
+              console.log('Borrador cargado exitosamente:', borradorData);
+              // Inicializar formData con los datos del borrador, sobrescribiendo si hay currentAtencion
+              setFormData(borradorData);
+            } else if (currentAtencion) {
+              // Si hay atención pero no borrador, inicializar formData con la atención
+              setFormData(currentAtencion);
+            }
+          } catch (err) {
+            if (err.response && err.response.status === 404) {
+              console.log('No se encontró borrador para esta atención/admisión.');
+            } else {
+              console.error('Error al cargar borrador (AtencionEmergenciaPage):', err);
+            }
+          }
+        } else if (currentAtencion) {
+          // Si hay atención pero no se pudo determinar un ID para borrador, usar la atención
+          setFormData(currentAtencion);
+        }
+
+        // Si no hay atención ni borrador, inicializar formData con valores por defecto (si es necesario)
+        if (!currentAtencion && !borradorData) {
+          setFormData(prev => ({
+            ...prev,
+            fechaAtencion: format(new Date(), 'yyyy-MM-dd'),
+            horaAtencion: format(new Date(), 'HH:mm'),
+            // Asegurarse de que otros campos complejos se inicialicen correctamente
+            // Esto es crucial porque AtencionEmergenciaForm esperará estos objetos
+            tipoAccidenteViolenciaIntoxicacion: { seleccion: [], transito: { consumoSustancias: '', proteccion: { casco: false, cinturon: false } } },
+            antecedentesPatologicos: {
+              alergicos: '', clinicos: '', ginecologicos: '', traumaticos: '', pediatricos: '', quirurgicos: '', farmacologicos: '', habitos: '', familiares: '', otros: '',
+              noAplicaGeneral: false, noAplica: { alergicos: false, clinicos: false, ginecologicos: false, traumaticos: false, pediatricos: false, quirurgicos: false, farmacologicos: false, habitos: false, familiares: false, otros: false }
+            },
+            examenFisico: {
+              // Valores iniciales de examenFisico aquí. Serán sobrescritos por signosVitalesData si existen.
+              glasgow_ocular: null, glasgow_verbal: null, glasgow_motora: null,
+              pupilas_derecha: '', pupilas_izquierda: '', tiempo_llenado_capilar: null,
+              glicemia_capilar: null, perimetro_cefalico: null, peso: null, talla: null
+            },
+            examenFisicoTraumaCritico: '',
+            embarazoParto: { estadoGestacion: '', numeroGestas: null, numeroPartos: null, numeroAbortos: null, numeroCesareas: null, fum: '', semanasGestacion: null, movimientoFetal: false, frecuenciaCardiacaFetal: null, rupturaMembranas: false, tiempo: '', afu: '', presentacion: '', dilatacion: '', borramiento: '', plano: '', pelvisViable: false, sangradoVaginal: false, contracciones: false, scoreMama: null },
+            examenesComplementarios: {
+              examenes_no_aplica: false,
+              items: Object.fromEntries([...Array(16)].map((_, i) => [i + 1, false])),
+              observaciones: ''
+            },
+            planTratamiento: [],
+            observacionesPlanTratamiento: '',
+            condicionEgreso: '',
+            referenciaEgreso: '',
+            establecimientoEgreso: ''
+          }));
         }
 
         // Obtener el historial de atenciones del paciente
@@ -115,7 +182,7 @@ const AtencionEmergenciaPage = () => {
 
         if (pacienteIdToFetchHistory) {
           const historialResponse = await axios.get(
-            `http://localhost:3001/api/atencion-emergencia/historial/${pacienteIdToFetchHistory}`,
+            `${API_BASE}/atencion-emergencia/historial/${pacienteIdToFetchHistory}`,
             { headers: { Authorization: `Bearer ${token}` } }
           );
           setAtencionesAnteriores(historialResponse.data);
@@ -165,10 +232,11 @@ const AtencionEmergenciaPage = () => {
 
   const paciente = admisionDetails.Paciente;
   const triaje = admisionDetails.TriajeDefinitivo;
-  const antecedentes = atencion?.antecedentesPatologicos 
-    ? (typeof atencion.antecedentesPatologicos === 'string' 
-        ? JSON.parse(atencion.antecedentesPatologicos) 
-        : atencion.antecedentesPatologicos)
+  // `antecedentes` ahora debe basarse en `formData` para estar sincronizado
+  const antecedentes = formData?.antecedentesPatologicos 
+    ? (typeof formData.antecedentesPatologicos === 'string' 
+        ? JSON.parse(formData.antecedentesPatologicos) 
+        : formData.antecedentesPatologicos)
     : null;
 
   return (
@@ -179,7 +247,7 @@ const AtencionEmergenciaPage = () => {
         admision={admisionDetails}
         triaje={triaje}
         alergias={alergias}
-        atencion={atencion}
+        atencion={atencion} // Se sigue pasando 'atencion' para el estado de firma y ID
         onReasignar={() => setShowReasignarModal(true)}
         signosVitales={signosVitalesDetails}
         signosVitalesHistorial={signosVitalesHistorial}
@@ -188,7 +256,7 @@ const AtencionEmergenciaPage = () => {
 
       <div 
         className="container mx-auto px-6 py-6 transition-all duration-300" 
-        style={{ 
+        style={{
           backgroundColor: '#f8fafc',
           marginLeft: isSidebarOpen ? '256px' : '0'
         }}
@@ -199,17 +267,19 @@ const AtencionEmergenciaPage = () => {
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
             <AtencionEmergenciaForm
               admisionId={admisionId}
-              atencionData={atencion}
+              atencionData={atencion} // Todavía se pasa atencionData original para el ID y estado de firma
               admisionData={admisionDetails}
               signosVitalesData={signosVitalesDetails}
               motivoConsulta={motivoConsulta}
               readOnly={atencion?.estadoFirma === 'FINALIZADO_FIRMADO'}
               onAlergiasChange={setAlergias}
+              formData={formData} // Pasar formData
+              setFormData={setFormData} // Pasar setFormData
             />
           </div>
 
           {/* Diagnósticos CIE-10 */}
-          {atencion && (
+          {atencion && ( // Renderizar DiagnosticosCIE10 solo si hay una atención principal creada
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
               <DiagnosticosCIE10
                 atencionId={atencion.id}

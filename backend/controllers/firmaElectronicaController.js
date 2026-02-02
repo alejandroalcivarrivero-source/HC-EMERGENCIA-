@@ -1,247 +1,336 @@
-const AtencionEmergencia = require('../models/atencionEmergencia');
-const DetalleDiagnosticos = require('../models/detalleDiagnosticos');
-const CertificadoFirma = require('../models/certificadoFirma');
-const Paciente = require('../models/pacientes');
-const Admision = require('../models/admisiones');
-const Usuario = require('../models/usuario');
-const { encrypt, decrypt } = require('../utils/cryptoFirma');
-const { extraerMetadatos, abrirP12ParaFirma } = require('../utils/p12Metadatos');
-const { contenidoAFirmarForm008, firmarConClavePrivada, crearSelloDigital } = require('../utils/selloDigital');
+const AtencionEmergencia = require("../models/atencionEmergencia");
+const DetalleDiagnosticos = require("../models/detalleDiagnosticos");
+const CertificadoFirma = require("../models/certificadoFirma");
+const TemporalGuardado = require("../models/temporal_guardado"); // Nueva importación
+const Paciente = require("../models/pacientes");
+const Admision = require("../models/admisiones");
+const Usuario = require("../models/usuario");
+const { encrypt, decrypt } = require("../utils/cryptoFirma");
+const { extraerMetadatos, abrirP12ParaFirma } = require("../utils/p12Metadatos");
+const { contenidoAFirmarForm008, firmarConClavePrivada, crearSelloDigital } = require("../utils/selloDigital");
 
 /**
  * Validar que una atención puede ser firmada
  * Debe tener al menos un diagnóstico DEFINITIVO (excepto códigos Z)
  */
-async function validarPuedeFirmar(atencionId) {
+exports.validarPuedeFirmar = async (atencionId) => { // Exportar directamente
   const diagnosticos = await DetalleDiagnosticos.findAll({
-    where: { atencionEmergenciaId: atencionId }
+    where: { atencion_emergencia_id: atencionId }, // Usar atencion_emergencia_id
   });
 
   if (diagnosticos.length === 0) {
-    return { puedeFirmar: false, motivo: 'No hay diagnósticos registrados.' };
+    return { puedeFirmar: false, motivo: "No hay diagnósticos registrados." };
   }
 
   // Verificar si hay al menos un diagnóstico DEFINITIVO o código Z con NO APLICA
-  const tieneDefinitivo = diagnosticos.some(d => {
-    const esCodigoZ = d.codigoCIE10.toUpperCase().startsWith('Z');
-    return d.tipoDiagnostico === 'DEFINITIVO' || (esCodigoZ && d.tipoDiagnostico === 'NO APLICA');
+  const tieneDefinitivo = diagnosticos.some((d) => {
+    const esCodigoZ = String(d.codigo_cie10).toUpperCase().startsWith("Z"); // Corregido a codigo_cie10
+    return d.tipo_diagnostico === "DEFINITIVO" || (esCodigoZ && d.condicion === "NO APLICA"); // Corregido a tipo_diagnostico y condicion
   });
 
   if (!tieneDefinitivo) {
-    return { puedeFirmar: false, motivo: 'Debe existir al menos un diagnóstico DEFINITIVO (excepto códigos Z).' };
+    return {
+      puedeFirmar: false,
+      motivo: "Debe existir al menos un diagnóstico DEFINITIVO (excepto códigos Z).",
+    };
   }
 
   // Previsión 094: si hay violencia en Sección D, Observaciones obligatorias (mín. 100 caracteres)
   const atencion = await AtencionEmergencia.findByPk(atencionId, {
-    attributes: ['tipoAccidenteViolenciaIntoxicacion', 'observacionesAccidente']
+    attributes: ["tipoAccidenteViolenciaIntoxicacion", "observacionesAccidente"],
   });
   if (atencion && atencion.tipoAccidenteViolenciaIntoxicacion) {
     let tipoD;
     try {
-      tipoD = typeof atencion.tipoAccidenteViolenciaIntoxicacion === 'string'
-        ? JSON.parse(atencion.tipoAccidenteViolenciaIntoxicacion)
-        : atencion.tipoAccidenteViolenciaIntoxicacion;
+      tipoD =
+        typeof atencion.tipoAccidenteViolenciaIntoxicacion === "string"
+          ? JSON.parse(atencion.tipoAccidenteViolenciaIntoxicacion)
+          : atencion.tipoAccidenteViolenciaIntoxicacion;
     } catch {
       tipoD = { seleccion: [] };
     }
     const sel = Array.isArray(tipoD?.seleccion) ? tipoD.seleccion : [];
-    const hayViolencia = sel.some(v => {
-      const s = String(v || '').toUpperCase();
-      return s.startsWith('VIOLENCIA_') || s.includes('VIOLENCIA');
+    const hayViolencia = sel.some((v) => {
+      const s = String(v || "").toUpperCase();
+      return s.startsWith("VIOLENCIA_") || s.includes("VIOLENCIA");
     });
-    if (hayViolencia && (atencion.observacionesAccidente || '').trim().length < 100) {
+    if (hayViolencia && (atencion.observacionesAccidente || "").trim().length < 100) {
       return {
         puedeFirmar: false,
-        motivo: 'Por tratarse de violencia, las Observaciones de la Sección D (Accidente, Violencia, Intoxicación) deben tener al menos 100 caracteres para cumplir el relato pericial (Previsión 094).'
+        motivo: "Por tratarse de violencia, las Observaciones de la Sección D (Accidente, Violencia, Intoxicación) deben tener al menos 100 caracteres para cumplir el relato pericial (Previsión 094).",
       };
     }
   }
 
   return { puedeFirmar: true };
-}
+};
 
 /**
  * Generar PDF del Formulario 008
  */
-async function generarPDFFormulario008(atencionId) {
+async function generarPDFFormulario008(atencionId, isPreliminar = false, rawFormData = null) {
   try {
-    // Importar dinámicamente pdfkit solo cuando sea necesario
-    const PDFDocument = require('pdfkit');
-    
-    const atencion = await AtencionEmergencia.findByPk(atencionId, {
-      include: [
-        {
-          model: Paciente,
-          as: 'Paciente',
-          attributes: ['primer_nombre', 'segundo_nombre', 'primer_apellido', 'segundo_apellido', 'numero_identificacion', 'fecha_nacimiento', 'sexo']
-        },
-        {
-          model: Admision,
-          as: 'AdmisionAtencion',
-          attributes: ['id', 'fecha_hora_admision']
-        },
-        {
-          model: Usuario,
-          as: 'Usuario',
-          attributes: ['nombres', 'apellidos', 'cedula']
-        }
-      ]
-    });
+    const PDFDocument = require("pdfkit");
+    const QRCode = require("qrcode"); // Importar QRCode aquí también para preliminar si se usa.
 
-    if (!atencion) {
-      throw new Error('Atención no encontrada.');
+    let atencion;
+    let diagnosticos = [];
+
+    if (rawFormData) {
+      // Si se proporcionan datos del formulario (borrador)
+      atencion = { ...rawFormData };
+      // Deserializar campos que normalmente son JSON strings en la BD
+      atencion.tipoAccidenteViolenciaIntoxicacion =
+        typeof atencion.tipoAccidenteViolenciaIntoxicacion === "string"
+          ? JSON.parse(atencion.tipoAccidenteViolenciaIntoxicacion)
+          : atencion.tipoAccidenteViolenciaIntoxicacion;
+      atencion.antecedentesPatologicos =
+        typeof atencion.antecedentesPatologicos === "string"
+          ? JSON.parse(atencion.antecedentesPatologicos)
+          : atencion.antecedentesPatologicos;
+      atencion.examenFisico =
+        typeof atencion.examenFisico === "string"
+          ? JSON.parse(atencion.examenFisico)
+          : atencion.examenFisico;
+      atencion.embarazoParto =
+        typeof atencion.embarazoParto === "string"
+          ? JSON.parse(atencion.embarazoParto)
+          : atencion.embarazoParto;
+      atencion.examenesComplementarios =
+        typeof atencion.examenesComplementarios === "string"
+          ? JSON.parse(atencion.examenesComplementarios)
+          : atencion.examenesComplementarios;
+      atencion.planTratamiento =
+        typeof atencion.planTratamiento === "string"
+          ? JSON.parse(atencion.planTratamiento)
+          : atencion.planTratamiento;
+      // Establecer un estado de firma para el borrador, si no se obtiene de la BD
+      if (!atencion.estadoFirma) atencion.estadoFirma = "BORRADOR";
+
+      // Si los diagnósticos vienen con rawFormData, usarlos. Si no, se buscarán en la BD por atencionId
+      diagnosticos = rawFormData.diagnosticos || []; // Podría venir como un array de objetos de diagnóstico ya parseados
     }
 
-    const diagnosticos = await DetalleDiagnosticos.findAll({
-      where: { atencionEmergenciaId: atencionId },
-      include: [{
-        model: require('../models/catCie10'),
-        as: 'CIE10',
-        attributes: ['codigo', 'descripcion']
-      }],
-      order: [['orden', 'ASC']]
-    });
+    if (!atencion || !Object.keys(atencion).length) {
+      // Si no tenemos datos de atención del borrador, buscar en la BD
+      const fetchedAtencion = await AtencionEmergencia.findByPk(atencionId, {
+        include: [
+          {
+            model: Paciente,
+            as: "Paciente",
+            attributes: [
+              "primer_nombre",
+              "segundo_nombre",
+              "primer_apellido",
+              "segundo_apellido",
+              "numero_identificacion",
+              "fecha_nacimiento",
+              "sexo",
+            ],
+          },
+          {
+            model: Admision,
+            as: "AdmisionAtencion",
+            attributes: ["id", "fecha_hora_admision"],
+          },
+          {
+            model: Usuario,
+            as: "Usuario",
+            attributes: ["nombres", "apellidos", "cedula"],
+          },
+        ],
+      });
+      if (!fetchedAtencion) {
+        throw new Error("Atención no encontrada.");
+      }
+      atencion = fetchedAtencion.get({ plain: true }); // Obtener objeto plano
+    }
+
+    // Cargar diagnósticos si no vinieron con rawFormData o si atencionId es diferente
+    if (diagnosticos.length === 0 && atencionId) {
+      diagnosticos = await DetalleDiagnosticos.findAll({
+        where: { atencion_emergencia_id: atencionId }, // Usar atencion_emergencia_id
+        include: [
+          {
+            model: require("../models/catCie10"),
+            as: "CIE10",
+            attributes: ["codigo", "descripcion"],
+          },
+          {
+            model: DetalleDiagnosticos,
+            as: "CausaExternaPadre",
+            attributes: ["id", "codigo_cie10", "tipo_diagnostico", "condicion", "es_causa_externa"],
+            required: false,
+          },
+        ],
+        order: [["id", "ASC"]], // Ordenar por ID para consistencia
+      });
+    }
 
     // Crear documento PDF
     const doc = new PDFDocument({ margin: 50 });
     const chunks = [];
-    
-    doc.on('data', chunk => chunks.push(chunk));
-    doc.on('end', () => {});
 
-    // Marca de agua "BORRADOR NO VÁLIDO" cuando el estado es BORRADOR (seguridad jurídica)
+    doc.on("data", (chunk) => chunks.push(chunk));
+    doc.on("end", () => {});
+
+    // Lógica de marca de agua
     const estadoFirma = atencion.estadoFirma || atencion.estado_firma;
-    if (estadoFirma === 'BORRADOR') {
+    let watermarkText = "";
+    if (isPreliminar && estadoFirma !== "FINALIZADO_FIRMADO") {
+      watermarkText = "DOCUMENTO PRELIMINAR - NO FIRMADO";
+    }
+    // Solo si no es preliminar y es BORRADOR, mostrar el watermark de BORRADOR
+    else if (!isPreliminar && estadoFirma === "BORRADOR") {
+      watermarkText = "BORRADOR NO VÁLIDO";
+    }
+
+    if (watermarkText) {
       doc.save();
       doc.opacity(0.28);
-      doc.fillColor('red');
+      doc.fillColor("red");
       doc.fontSize(42);
       const cx = doc.page.width / 2;
       const cy = doc.page.height / 2;
       doc.translate(cx, cy);
       doc.rotate(-35, { origin: [0, 0] });
-      doc.text('BORRADOR NO VÁLIDO', -200, -14, { width: 400, align: 'center' });
+      doc.text(watermarkText, -200, -14, { width: 400, align: "center" });
       doc.restore();
       doc.opacity(1);
-      doc.fillColor('black');
+      doc.fillColor("black");
     }
 
-    // Encabezado
-    doc.fontSize(16).text('FORMULARIO 008 - ATENCIÓN DE EMERGENCIA', { align: 'center' });
+    doc.fontSize(16).text("FORMULARIO 008 - ATENCIÓN DE EMERGENCIA", { align: "center" });
     doc.moveDown();
 
-    // Datos del paciente
-    doc.fontSize(12).text('DATOS DEL PACIENTE', { underline: true });
+    doc.fontSize(12).text("DATOS DEL PACIENTE", { underline: true });
     doc.fontSize(10);
-    doc.text(`Nombre: ${atencion.Paciente.primer_nombre} ${atencion.Paciente.segundo_nombre || ''} ${atencion.Paciente.primer_apellido} ${atencion.Paciente.segundo_apellido || ''}`);
+    doc.text(
+      `Nombre: ${atencion.Paciente.primer_nombre} ${atencion.Paciente.segundo_nombre || ""} ${atencion.Paciente.primer_apellido} ${atencion.Paciente.segundo_apellido || ""}`
+    );
     doc.text(`Identificación: ${atencion.Paciente.numero_identificacion}`);
     doc.text(`Fecha de Nacimiento: ${atencion.Paciente.fecha_nacimiento}`);
     doc.text(`Sexo: ${atencion.Paciente.sexo}`);
     doc.moveDown();
 
     // Datos de la atención
-    doc.fontSize(12).text('DATOS DE LA ATENCIÓN', { underline: true });
+    doc.fontSize(12).text("DATOS DE LA ATENCIÓN", { underline: true });
     doc.fontSize(10);
     doc.text(`Fecha de Atención: ${atencion.fechaAtencion}`);
     doc.text(`Hora de Atención: ${atencion.horaAtencion}`);
     doc.text(`Condición de Llegada: ${atencion.condicionLlegada}`);
-    doc.text(`Motivo de Atención: ${atencion.motivoAtencion || 'N/A'}`);
+    doc.text(`Motivo de Atención: ${atencion.motivoAtencion || "N/A"}`);
     doc.moveDown();
 
     // Diagnósticos — Filtro Formulario 008: solo morbilidad, máx. 3 Presuntivos (L) y 3 Definitivos (M).
     // Excluir: códigos Z (NO APLICA), causas externas (V–Y) y códigos con padre_id.
-    const esCodigoZPdf = (cod) => String(cod || '').toUpperCase().startsWith('Z');
-    const esCausaExternaPdf = (d) => /^[VWXY]/.test(String(d.codigoCIE10 || '').toUpperCase()) || d.padreId != null;
-    const morbilidad = diagnosticos.filter(d => !esCodigoZPdf(d.codigoCIE10) && !esCausaExternaPdf(d));
-    const presuntivosPdf = morbilidad.filter(d => d.tipoDiagnostico === 'PRESUNTIVO').slice(0, 3);
-    const definitivosPdf = morbilidad.filter(d => d.tipoDiagnostico === 'DEFINITIVO').slice(0, 3);
+    const esCodigoZPdf = (cod) => String(cod || "").toUpperCase().startsWith("Z");
+    const esCausaExternaPdf = (d) =>
+      /^[VWXY]/.test(String(d.codigo_cie10 || "").toUpperCase()) || d.padre_id != null; // Corregido a snake_case
+    const morbilidad = diagnosticos.filter(
+      (d) => !esCodigoZPdf(d.codigo_cie10) && !esCausaExternaPdf(d) // Corregido a snake_case
+    );
+    const presuntivosPdf = morbilidad
+      .filter((d) => d.tipo_diagnostico === "PRESUNTIVO")
+      .slice(0, 3); // Corregido a snake_case
+    const definitivosPdf = morbilidad
+      .filter((d) => d.tipo_diagnostico === "DEFINITIVO")
+      .slice(0, 3); // Corregido a snake_case
     const diagnosticosParaPdf = [...presuntivosPdf, ...definitivosPdf];
 
-    doc.fontSize(12).text('DIAGNÓSTICOS', { underline: true });
+    doc.fontSize(12).text("DIAGNÓSTICOS", { underline: true });
     doc.fontSize(10);
     diagnosticosParaPdf.forEach((diag, index) => {
-      const cod = diag.CIE10?.codigo || diag.codigoCIE10 || '';
-      const desc = diag.CIE10?.descripcion || diag.descripcion || '';
+      const cod = diag.CIE10?.codigo || diag.codigo_cie10 || ""; // Corregido a snake_case
+      const desc = diag.CIE10?.descripcion || diag.descripcion || "";
       doc.text(`${index + 1}. CIE-10: ${cod} - ${desc}`);
-      doc.text(`   Condición: ${diag.tipoDiagnostico}`);
+      doc.text(`   Tipo: ${diag.tipo_diagnostico}, Condición: ${diag.condicion}`); // Añadida condición
       if (diag.descripcion && diag.descripcion !== desc) {
-        doc.text(`   Descripción: ${diag.descripcion}`);
+        doc.text(`   Observaciones: ${diag.descripcion}`);
       }
       doc.moveDown(0.5);
     });
 
     // Enfermedad o problema actual
     if (atencion.enfermedadProblemaActual) {
-      doc.fontSize(12).text('ENFERMEDAD O PROBLEMA ACTUAL', { underline: true });
+      doc.fontSize(12).text("ENFERMEDAD O PROBLEMA ACTUAL", { underline: true });
       doc.fontSize(10);
       doc.text(atencion.enfermedadProblemaActual);
       doc.moveDown();
     }
 
     // Plan de tratamiento
-    if (atencion.planTratamiento) {
-      doc.fontSize(12).text('PLAN DE TRATAMIENTO', { underline: true });
+    if (atencion.planTratamiento && atencion.planTratamiento.length > 0) {
+      // Verificar longitud
+      doc.fontSize(12).text("PLAN DE TRATAMIENTO", { underline: true });
       doc.fontSize(10);
-      const plan = JSON.parse(atencion.planTratamiento);
+      const plan =
+        typeof atencion.planTratamiento === "string"
+          ? JSON.parse(atencion.planTratamiento)
+          : atencion.planTratamiento; // Puede ser objeto ya parseado
       plan.forEach((item, index) => {
-        doc.text(`${index + 1}. ${item.medicamento || 'N/A'}`);
-        doc.text(`   Vía: ${item.via || 'N/A'}, Dosis: ${item.dosis || 'N/A'}, Posología: ${item.posologia || 'N/A'}, Días: ${item.dias || 'N/A'}`);
+        doc.text(`${index + 1}. ${item.medicamento || "N/A"}`);
+        doc.text(
+          `   Vía: ${item.via || "N/A"}, Dosis: ${item.dosis || "N/A"}, Posología: ${item.posologia || "N/A"}, Días: ${item.dias || "N/A"}`
+        );
         doc.moveDown(0.5);
       });
     }
 
-    // Profesional responsable
     doc.moveDown();
-    doc.fontSize(12).text('PROFESIONAL RESPONSABLE', { underline: true });
+    doc.fontSize(12).text("PROFESIONAL RESPONSABLE", { underline: true });
     doc.fontSize(10);
     doc.text(`Nombre: ${atencion.Usuario.nombres} ${atencion.Usuario.apellidos}`);
     doc.text(`Cédula: ${atencion.Usuario.cedula}`);
 
     // Firma electrónica / Sello digital (formato legal MSP) — solo si ya fue firmado (FINALIZADO_FIRMADO)
     const selloRaw = atencion.selloDigital || atencion.sello_digital;
-    if (selloRaw) {
+    if (selloRaw && estadoFirma === "FINALIZADO_FIRMADO") {
+      // Solo mostrar sello si está FINALIZADO_FIRMADO
       try {
-        const sello = typeof selloRaw === 'string' ? JSON.parse(selloRaw) : selloRaw;
+        const sello = typeof selloRaw === "string" ? JSON.parse(selloRaw) : selloRaw;
         doc.moveDown();
-        doc.fontSize(12).text('FIRMA ELECTRÓNICA / SELLO DIGITAL (MSP)', { underline: true });
+        doc.fontSize(12).text("FIRMA ELECTRÓNICA / SELLO DIGITAL (MSP)", { underline: true });
         doc.fontSize(10);
-        doc.text(`Titular del certificado: ${sello.nombre || '—'}`);
-        doc.text(`Cédula/CI: ${sello.ci || '—'}`);
-        doc.text(`Entidad emisora del certificado: ${sello.entidadEmisora || '—'}`);
-        doc.text(`Fecha y hora de firma: ${sello.fechaFirma || '—'}`);
-        doc.text(`Algoritmo: ${sello.algoritmo || 'SHA256withRSA'}`);
-        doc.fontSize(9).fillColor('gray');
-        doc.text(`Digest (SHA-256): ${(sello.digestBase64 || '').slice(0, 56)}...`);
-        doc.fillColor('black').fontSize(10);
+        doc.text(`Titular del certificado: ${sello.nombre || "—"}`);
+        doc.text(`Cédula/CI: ${sello.ci || "—"}`);
+        doc.text(`Entidad emisora del certificado: ${sello.entidadEmisora || "—"}`);
+        doc.text(`Fecha y hora de firma: ${sello.fechaFirma || "—"}`);
+        doc.text(`Algoritmo: ${sello.algoritmo || "SHA256withRSA"}`);
+        doc.fontSize(9).fillColor("gray");
+        doc.text(`Digest (SHA-256): ${(sello.digestBase64 || "").slice(0, 56)}...`);
+        doc.fillColor("black").fontSize(10);
         // QR de validación (solo en documento oficial FINALIZADO_FIRMADO)
-        if (estadoFirma === 'FINALIZADO_FIRMADO') {
-          try {
-            const QRCode = require('qrcode');
-            const verificationPayload = `HC-CHONE|FORM008|${atencionId}|${(sello.digestBase64 || '').slice(0, 32)}`;
-            const qrDataUrl = await QRCode.toDataURL(verificationPayload, { margin: 1, width: 120 });
-            doc.moveDown(0.5);
-            doc.fontSize(10).text('Código QR de validación:', doc.x, doc.y);
-            const qrY = doc.y + 4;
-            doc.image(qrDataUrl, doc.x, qrY, { width: 80 });
-            doc.y = qrY + 84;
-          } catch (_) { /* si falta qrcode o falla, se omite el QR */ }
+        try {
+          const verificationPayload = `HC-CHONE|FORM008|${atencionId}|${(sello.digestBase64 || "").slice(
+            0,
+            32
+          )}`;
+          const qrDataUrl = await QRCode.toDataURL(verificationPayload, { margin: 1, width: 120 });
+          doc.moveDown(0.5);
+          doc.fontSize(10).text("Código QR de validación:", doc.x, doc.y);
+          const qrY = doc.y + 4;
+          doc.image(qrDataUrl, doc.x, qrY, { width: 80 });
+          doc.y = qrY + 84;
+        } catch (_) {
+          /* si falla, se omite el QR */
         }
-      } catch (_) { /* ignorar si el sello no es JSON válido */ }
+      } catch (_) {
+        /* ignorar si el sello no es JSON válido */
+      }
     }
 
-    // Finalizar PDF
     doc.end();
 
-    // Esperar a que se complete la generación
     return new Promise((resolve, reject) => {
-      doc.on('end', () => {
+      doc.on("end", () => {
         const pdfBuffer = Buffer.concat(chunks);
         resolve(pdfBuffer);
       });
-      doc.on('error', reject);
+      doc.on("error", reject);
     });
   } catch (error) {
-    console.error('Error al generar PDF:', error);
+    console.error("Error al generar PDF:", error);
     throw error;
   }
 }
@@ -249,7 +338,7 @@ async function generarPDFFormulario008(atencionId) {
 /**
  * Endpoint para firmar una atención (subiendo .p12 en el momento)
  */
-exports.firmarAtencion = async (req, res) => {
+exports.firmarAtencion = async (req, res) => { // Ahora es exports.firmarAtencion
   try {
     const { atencionId } = req.params;
     const password = (req.body && req.body.password) ? String(req.body.password).trim() : '';
@@ -258,13 +347,11 @@ exports.firmarAtencion = async (req, res) => {
       return res.status(400).json({ message: 'Debe proporcionar el archivo .p12 del certificado.' });
     }
 
-    // Validar que puede ser firmada
-    const validacion = await validarPuedeFirmar(atencionId);
+    const validacion = await exports.validarPuedeFirmar(atencionId); // Usar exports.validarPuedeFirmar
     if (!validacion.puedeFirmar) {
       return res.status(400).json({ message: validacion.motivo });
     }
 
-    // Verificar que la atención existe y está pendiente
     const atencion = await AtencionEmergencia.findByPk(atencionId);
     if (!atencion) {
       return res.status(404).json({ message: 'Atención no encontrada.' });
@@ -299,7 +386,7 @@ exports.firmarAtencion = async (req, res) => {
 };
 
 /**
- * Obtener PDF del formulario sin firmar (vista previa)
+ * Obtener PDF preview del formulario sin firmar (vista previa)
  */
 exports.getPDFPreview = async (req, res) => {
   try {
@@ -407,10 +494,11 @@ exports.firmarConCertificadoGuardado = async (req, res) => {
     const { atencionId } = req.params;
     const { password } = req.body || {};
     if (!password || !String(password).trim()) {
-      return res.status(400).json({ message: 'Debe enviar la contraseña del certificado (clave de firma).' });
-    }
+      return res.status(400).json({ message: 'Debe enviar la contraseña del certificado (clave de firma).'
+    });
+  }
 
-    const validacion = await validarPuedeFirmar(atencionId);
+    const validacion = await exports.validarPuedeFirmar(atencionId);
     if (!validacion.puedeFirmar) {
       return res.status(400).json({ message: validacion.motivo });
     }
@@ -453,4 +541,90 @@ exports.firmarConCertificadoGuardado = async (req, res) => {
   }
 };
 
-module.exports = exports;
+/**
+ * Generar PDF Preliminar del Formulario 008 (sin firmar, con datos del borrador si existen)
+ */
+exports.getPDFPreliminar = async (req, res) => {
+  try {
+    const { admisionId } = req.params;
+    const userId = req.userId;
+
+    let atencionPrincipal = await AtencionEmergencia.findOne({
+      where: { admisionId: admisionId },
+      include: [
+        { model: Paciente, as: 'Paciente' },
+        { model: Usuario, as: 'Usuario' }
+      ]
+    });
+
+    let formDataFromBorrador = null;
+    let diagnosticosFromBorrador = [];
+    let atencionIdParaBorrador = atencionPrincipal?.id || parseInt(admisionId, 10);
+
+    if (!atencionPrincipal || atencionPrincipal.estadoFirma !== 'FINALIZADO_FIRMADO') {
+      const borrador = await TemporalGuardado.findOne({
+        where: { idAtencion: atencionIdParaBorrador },
+        order: [['createdAt', 'DESC']]
+      });
+
+      if (borrador && borrador.datos) {
+        formDataFromBorrador = JSON.parse(borrador.datos);
+
+        let effectiveAtencionIdForDiagnosticos = atencionPrincipal?.id || atencionIdParaBorrador;
+
+        diagnosticosFromBorrador = await DetalleDiagnosticos.findAll({
+          where: { atencion_emergencia_id: effectiveAtencionIdForDiagnosticos },
+          include: [{
+            model: require('../models/catCie10'),
+            as: 'CIE10',
+            attributes: ['codigo', 'descripcion']
+          }, {
+            model: DetalleDiagnosticos,
+            as: 'CausaExternaPadre',
+            attributes: ['id', 'codigo_cie10', 'tipo_diagnostico', 'condicion', 'es_causa_externa'],
+            required: false
+          }],
+          order: [['id', 'ASC']]
+        });
+
+        const finalAtencionData = atencionPrincipal ? { ...atencionPrincipal.get({ plain: true }), ...formDataFromBorrador } : formDataFromBorrador;
+        if (!finalAtencionData.Paciente && atencionPrincipal?.Paciente) finalAtencionData.Paciente = atencionPrincipal.Paciente;
+        if (!finalAtencionData.Usuario && atencionPrincipal?.Usuario) finalAtencionData.Usuario = atencionPrincipal.Usuario;
+        if (!finalAtencionData.Usuario && userId) {
+            const user = await Usuario.findByPk(userId);
+            finalAtencionData.Usuario = { nombres: user?.nombres, apellidos: user?.apellidos, cedula: user?.cedula };
+        }
+        if (!finalAtencionData.Paciente && admisionId) {
+            const adm = await Admision.findByPk(admisionId, { include: [{ model: Paciente, as: 'Paciente' }] });
+            finalAtencionData.Paciente = adm?.Paciente;
+        }
+
+        const pdfBuffer = await generarPDFFormulario008(atencionIdParaBorrador, true, { ...finalAtencionData, diagnosticos: diagnosticosFromBorrador });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="formulario_008_preliminar_${admisionId}.pdf"`);
+        return res.send(pdfBuffer);
+      }
+    }
+    
+    if (atencionPrincipal && atencionPrincipal.estadoFirma === 'FINALIZADO_FIRMADO') {
+      return res.status(400).json({ message: 'La atención ya está finalizada y firmada. Use la opción de descarga de PDF oficial.' });
+    }
+    
+    return res.status(404).json({ message: 'No se encontró una atención o borrador válido para generar el preliminar.' });
+
+  } catch (error) {
+    console.error('Error al generar PDF Preliminar:', error);
+    res.status(500).json({ message: 'Error al generar PDF Preliminar.', error: error.message });
+  }
+};
+
+module.exports = {
+  validarPuedeFirmar: exports.validarPuedeFirmar, // Ahora se exporta explícitamente desde exports
+  firmarAtencion: exports.firmarAtencion,         // Ahora se exporta explícitamente desde exports
+  getPDFPreview: exports.getPDFPreview,
+  validarP12: exports.validarP12,
+  guardarCertificado: exports.guardarCertificado,
+  getCertificadoInfo: exports.getCertificadoInfo,
+  firmarConCertificadoGuardado: exports.firmarConCertificadoGuardado,
+  getPDFPreliminar: exports.getPDFPreliminar,
+};

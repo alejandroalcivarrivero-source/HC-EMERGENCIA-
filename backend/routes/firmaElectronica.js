@@ -42,4 +42,7 @@ router.get('/certificado/info', validarToken, firmaElectronicaController.getCert
 // Firmar con certificado guardado (body: { password })
 router.post('/firmar-con-certificado/:atencionId', validarToken, express.json(), firmaElectronicaController.firmarConCertificadoGuardado);
 
+// Ruta para obtener PDF Preliminar
+router.get('/preview-preliminar/:admisionId', validarToken, firmaElectronicaController.getPDFPreliminar);
+
 module.exports = router;

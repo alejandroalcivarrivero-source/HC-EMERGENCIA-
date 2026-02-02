@@ -13,13 +13,19 @@ exports.getDiagnosticos = async (req, res) => {
     const { atencionId } = req.params;
 
     const diagnosticos = await DetalleDiagnosticos.findAll({
-      where: { atencionEmergenciaId: atencionId },
+      where: { atencion_emergencia_id: atencionId }, // Corregido a snake_case
+      attributes: ['id', 'atencion_emergencia_id', 'codigo_cie10', 'tipo_diagnostico', 'condicion', 'padre_id', 'es_causa_externa'], // Incluir 'condicion'
       include: [{
         model: CatCIE10,
         as: 'CIE10',
         attributes: ['codigo', 'descripcion']
+      }, {
+        model: DetalleDiagnosticos,
+        as: 'CausaExternaPadre',
+        attributes: ['id', 'codigo_cie10', 'tipo_diagnostico', 'condicion', 'es_causa_externa'],
+        required: false
       }],
-      order: [['orden', 'ASC'], ['createdAt', 'ASC']]
+      order: [['id', 'ASC']] // Ordenar por ID para consistencia
     });
 
     res.status(200).json(diagnosticos);
@@ -37,7 +43,7 @@ exports.getDiagnosticos = async (req, res) => {
 exports.agregarDiagnostico = async (req, res) => {
   try {
     const { atencionId } = req.params;
-    const { codigoCIE10, descripcion, tipoDiagnostico, esCausaExterna, padreId } = req.body;
+    const { codigoCIE10, descripcion, tipoDiagnostico, condicion, esCausaExterna, padreId } = req.body;
 
     // Verificar que la atención existe
     const atencion = await AtencionEmergencia.findByPk(atencionId);
@@ -52,30 +58,31 @@ exports.agregarDiagnostico = async (req, res) => {
     }
 
     const codigo = (codigoCIE10 || '').trim().toUpperCase();
-    // Regla Z: Administrativos/Certificados — condición NO APLICA, no ocupa slots L/M
     let tipoDiagnosticoFinal = tipoDiagnostico;
-    if (codigo.startsWith('Z')) {
-      tipoDiagnosticoFinal = 'NO APLICA';
-    }
-    // Regla S-T: trauma/causa externa — requiere segundo dx en V00-V99, W00-X59, X60-Y09, Y35-Y84
-    const requiereCausaExterna = codigo.startsWith('S') || codigo.startsWith('T');
+    let condicionFinal = condicion; // Asume que el frontend envía la condición correcta si no hay reglas que la modifiquen
 
-    // Obtener el siguiente orden
-    const ultimoDiagnostico = await DetalleDiagnosticos.findOne({
-      where: { atencionEmergenciaId: atencionId },
-      order: [['orden', 'DESC']]
-    });
-    const siguienteOrden = ultimoDiagnostico ? ultimoDiagnostico.orden + 1 : 1;
+    if (codigo.startsWith('Z')) {
+      tipoDiagnosticoFinal = 'ESTADISTICO'; // Corregido a ESTADISTICO según el DDL
+      condicionFinal = 'NO APLICA';
+    } else if (!!esCausaExterna) { // Si el diagnóstico es una causa externa
+      condicionFinal = 'CAUSA EXTERNA';
+    } else if (codigo.startsWith('S') || codigo.startsWith('T')) {
+      // Si es S o T y no es causa externa, es principal o secundario
+      // Dejamos que el frontend determine si es principal o secundario, pero por defecto es PRINCIPAL
+      if (!condicionFinal) condicionFinal = 'PRINCIPAL';
+    } else {
+      // Para otros códigos, si no se especifica, se asume PRINCIPAL
+      if (!condicionFinal) condicionFinal = 'PRINCIPAL';
+    }
 
     const diagnostico = await DetalleDiagnosticos.create({
-      atencionEmergenciaId: atencionId,
-      codigoCIE10,
-      tipoDiagnostico: tipoDiagnosticoFinal,
-      descripcion: descripcion || cie10.descripcion,
-      orden: siguienteOrden,
-      padreId: padreId ? parseInt(padreId, 10) : null,
-      esCausaExterna: !!esCausaExterna,
-      usuarioId: req.userId || null
+      atencion_emergencia_id: atencionId, // Corregido a atencion_emergencia_id según el modelo
+      codigo_cie10: codigoCIE10, // Corregido a codigo_cie10
+      tipo_diagnostico: tipoDiagnosticoFinal, // Corregido a tipo_diagnostico
+      condicion: condicionFinal, // Agregado el campo condicion
+      descripcion: descripcion || cie10.descripcion, // La descripción debe venir del frontend o CIE10
+      padre_id: padreId ? parseInt(padreId, 10) : null, // Corregido a padre_id
+      es_causa_externa: !!esCausaExterna // Corregido a es_causa_externa
     });
 
     const diagnosticoCompleto = await DetalleDiagnosticos.findByPk(diagnostico.id, {
@@ -83,10 +90,15 @@ exports.agregarDiagnostico = async (req, res) => {
         model: CatCIE10,
         as: 'CIE10',
         attributes: ['codigo', 'descripcion']
+      }, {
+        model: DetalleDiagnosticos, // Incluir la relación para obtener el padre
+        as: 'CausaExternaPadre',
+        attributes: ['id', 'codigo_cie10', 'tipo_diagnostico', 'condicion', 'es_causa_externa'],
+        required: false
       }]
     });
     const payload = diagnosticoCompleto.toJSON ? diagnosticoCompleto.toJSON() : diagnosticoCompleto;
-    res.status(201).json({ ...payload, requiereCausaExterna });
+    res.status(201).json({ ...payload, requiereCausaExterna: (codigo.startsWith('S') || codigo.startsWith('T')) }); // Aseguramos que se envía requiereCausaExterna
   } catch (error) {
     console.error('Error al agregar diagnóstico:', error);
     res.status(500).json({ message: 'Error al agregar diagnóstico.', error: error.message });
@@ -100,25 +112,37 @@ exports.agregarDiagnostico = async (req, res) => {
 exports.actualizarDiagnostico = async (req, res) => {
   try {
     const { diagnosticoId } = req.params;
-    const { codigoCIE10, descripcion, tipoDiagnostico, esCausaExterna, padreId } = req.body;
+    const { codigoCIE10, descripcion, tipoDiagnostico, condicion, esCausaExterna, padreId } = req.body;
 
     const diagnostico = await DetalleDiagnosticos.findByPk(diagnosticoId);
     if (!diagnostico) {
       return res.status(404).json({ message: 'Diagnóstico no encontrado.' });
     }
 
-    const codigoFinal = (codigoCIE10 || diagnostico.codigoCIE10 || '').trim().toUpperCase();
-    let tipoDiagnosticoFinal = tipoDiagnostico || diagnostico.tipoDiagnostico;
+    const codigoFinal = (codigoCIE10 || diagnostico.codigo_cie10 || '').trim().toUpperCase(); // Corregido a codigo_cie10
+    let tipoDiagnosticoFinal = tipoDiagnostico || diagnostico.tipo_diagnostico; // Corregido a tipo_diagnostico
+    let condicionFinal = condicion || diagnostico.condicion; // Agregado condicion
+
     if (codigoFinal.startsWith('Z')) {
-      tipoDiagnosticoFinal = 'NO APLICA';
+      tipoDiagnosticoFinal = 'ESTADISTICO'; // Corregido a ESTADISTICO
+      condicionFinal = 'NO APLICA';
+    } else if (esCausaExterna !== undefined ? !!esCausaExterna : diagnostico.es_causa_externa) { // Si el diagnóstico es una causa externa
+      condicionFinal = 'CAUSA EXTERNA';
+    } else if (codigoFinal.startsWith('S') || codigoFinal.startsWith('T')) {
+      // Si es S o T y no es causa externa, y no se especificó condición, por defecto PRINCIPAL
+      if (!condicionFinal) condicionFinal = 'PRINCIPAL';
+    } else {
+      // Para otros códigos, si no se especificó condición, por defecto PRINCIPAL
+      if (!condicionFinal) condicionFinal = 'PRINCIPAL';
     }
 
     await diagnostico.update({
-      codigoCIE10: codigoFinal || diagnostico.codigoCIE10,
-      tipoDiagnostico: tipoDiagnosticoFinal,
+      codigo_cie10: codigoFinal || diagnostico.codigo_cie10, // Corregido a codigo_cie10
+      tipo_diagnostico: tipoDiagnosticoFinal, // Corregido a tipo_diagnostico
+      condicion: condicionFinal, // Agregado condicion
       descripcion: descripcion !== undefined ? descripcion : diagnostico.descripcion,
-      padreId: padreId !== undefined ? (padreId ? parseInt(padreId, 10) : null) : diagnostico.padreId,
-      esCausaExterna: esCausaExterna !== undefined ? !!esCausaExterna : diagnostico.esCausaExterna
+      padre_id: padreId !== undefined ? (padreId ? parseInt(padreId, 10) : null) : diagnostico.padre_id, // Corregido a padre_id
+      es_causa_externa: esCausaExterna !== undefined ? !!esCausaExterna : diagnostico.es_causa_externa // Corregido a es_causa_externa
     });
 
     const diagnosticoActualizado = await DetalleDiagnosticos.findByPk(diagnosticoId, {
@@ -126,6 +150,11 @@ exports.actualizarDiagnostico = async (req, res) => {
         model: CatCIE10,
         as: 'CIE10',
         attributes: ['codigo', 'descripcion']
+      }, {
+        model: DetalleDiagnosticos, // Incluir la relación para obtener el padre
+        as: 'CausaExternaPadre',
+        attributes: ['id', 'codigo_cie10', 'tipo_diagnostico', 'condicion', 'es_causa_externa'],
+        required: false
       }]
     });
 
