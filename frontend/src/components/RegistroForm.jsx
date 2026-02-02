@@ -12,8 +12,13 @@ export default function RegistroForm() {
     telefono: '', // Nuevo campo para el número de teléfono
     contrasena: '',
     confirmar_contrasena: '', // Nuevo campo para confirmar contraseña
-    rol_id: ''
+    rol_id: '',
+    password_firma: '' // Contraseña del p12
   });
+  const [modoRegistro, setModoRegistro] = useState('manual'); // 'manual' | 'firma'
+  const [archivoFirma, setArchivoFirma] = useState(null);
+  const [camposBloqueados, setCamposBloqueados] = useState(false); // Para bloquear campos autocompletados
+  const [validandoFirma, setValidandoFirma] = useState(false);
   const [roles, setRoles] = useState([]); // Estado para los roles
   const [sexos, setSexos] = useState([]); // Nuevo estado para los sexos
   const [error, setError] = useState(null);
@@ -49,6 +54,59 @@ export default function RegistroForm() {
     // Limpiar errores relacionados con el campo modificado
     if (error && error.includes(e.target.name)) {
       setError(null);
+    }
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (file.name.endsWith('.p12') || file.name.endsWith('.pfx')) {
+        setArchivoFirma(file);
+        setCamposBloqueados(false); // Resetear bloqueo si cambia el archivo
+      } else {
+        alert('Solo se permiten archivos .p12 o .pfx');
+        e.target.value = '';
+        setArchivoFirma(null);
+      }
+    }
+  };
+
+  const validarYAutocompletar = async () => {
+    if (!archivoFirma || !form.password_firma) {
+      setError('Cargue el archivo .p12 e ingrese la contraseña para validar.');
+      return;
+    }
+    
+    setValidandoFirma(true);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append('p12', archivoFirma);
+      formData.append('password_firma', form.password_firma);
+
+      const res = await fetch('http://localhost:3001/usuarios/validar-firma-registro', {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Error al validar firma');
+
+      // Autocompletar y bloquear
+      setForm(prev => ({
+        ...prev,
+        cedula: data.cedula,
+        nombres: data.nombres,
+        apellidos: data.apellidos
+      }));
+      setCamposBloqueados(true);
+      alert('Datos validados y extraídos correctamente del certificado.');
+
+    } catch (err) {
+      setError(err.message);
+      setCamposBloqueados(false);
+    } finally {
+      setValidandoFirma(false);
     }
   };
 
@@ -129,15 +187,29 @@ export default function RegistroForm() {
       return;
     }
 
+    if (modoRegistro === 'firma' && (!archivoFirma || !form.password_firma)) {
+      setError('Para registro con firma, debe cargar el archivo .p12 y su contraseña.');
+      return;
+    }
+
     try {
+      const formData = new FormData();
+      Object.keys(form).forEach(key => {
+        formData.append(key, form[key]);
+      });
+      
+      if (modoRegistro === 'firma' && archivoFirma) {
+        formData.append('p12', archivoFirma);
+      }
+
       const res = await fetch('http://localhost:3001/usuarios/registro', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
+        // No setear Content-Type header manualmente con FormData, el navegador lo hace con boundary
+        body: formData
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error al registrar');
+      if (!res.ok) throw new Error(data.message || data.error || 'Error al registrar');
 
       alert('Registro exitoso');
       navigate('/');
@@ -151,21 +223,91 @@ export default function RegistroForm() {
       <form onSubmit={handleSubmit} className="bg-white shadow-lg rounded-lg p-10 w-full max-w-2xl">
         <h2 className="text-3xl font-extrabold mb-8 text-center text-gray-800">Registro de Nuevo Usuario</h2>
 
-        {error && <div className="mb-6 p-3 bg-red-100 border border-red-400 text-red-700 rounded-md text-sm">{error}</div>}
+        <div className="flex gap-4 mb-6 border-b border-gray-200">
+          <button
+          type="button"
+          className={`pb-2 px-4 font-medium text-sm transition-colors ${modoRegistro === 'manual' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+          onClick={() => { setModoRegistro('manual'); setCamposBloqueados(false); }}
+        >
+          Registro Manual
+        </button>
+        <button
+          type="button"
+          className={`pb-2 px-4 font-medium text-sm transition-colors ${modoRegistro === 'firma' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+          onClick={() => setModoRegistro('firma')}
+        >
+          Registro con Firma (.p12)
+        </button>
+      </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Cédula</label>
-            <input type="text" name="cedula" value={form.cedula} onChange={handleChange} required className="input-field" />
+      {error && <div className="mb-6 p-3 bg-red-100 border border-red-400 text-red-700 rounded-md text-sm">{error}</div>}
+
+      {modoRegistro === 'firma' && (
+        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <h3 className="text-sm font-semibold text-blue-800 mb-3">Carga de Firma Electrónica</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-blue-700 mb-1">Archivo .p12 / .pfx</label>
+              <input type="file" accept=".p12,.pfx" onChange={handleFileChange} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-blue-700 mb-1">Contraseña del certificado</label>
+              <input type="password" name="password_firma" value={form.password_firma} onChange={handleChange} placeholder="Contraseña de la firma" className="input-field" />
+            </div>
           </div>
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Nombres</label>
-            <input type="text" name="nombres" value={form.nombres} onChange={handleChange} required className="input-field" />
-          </div>
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Apellidos</label>
-            <input type="text" name="apellidos" value={form.apellidos} onChange={handleChange} required className="input-field" />
-          </div>
+          
+          <button
+            type="button"
+            onClick={validarYAutocompletar}
+            disabled={validandoFirma || !archivoFirma || !form.password_firma}
+            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-blue-300 transition-colors text-sm font-medium"
+          >
+            {validandoFirma ? 'Validando...' : 'Validar y Autocompletar Datos'}
+          </button>
+          
+          <p className="mt-2 text-xs text-blue-600">
+            * Al validar, la Cédula, Nombres y Apellidos se extraerán automáticamente de su firma digital.
+          </p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Cédula</label>
+          <input
+            type="text"
+            name="cedula"
+            value={form.cedula}
+            onChange={handleChange}
+            required
+            readOnly={modoRegistro === 'firma' && camposBloqueados}
+            className={`input-field ${modoRegistro === 'firma' && camposBloqueados ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+          />
+        </div>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Nombres</label>
+          <input
+            type="text"
+            name="nombres"
+            value={form.nombres}
+            onChange={handleChange}
+            required
+            readOnly={modoRegistro === 'firma' && camposBloqueados}
+            className={`input-field ${modoRegistro === 'firma' && camposBloqueados ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+          />
+        </div>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Apellidos</label>
+          <input
+            type="text"
+            name="apellidos"
+            value={form.apellidos}
+            onChange={handleChange}
+            required
+            readOnly={modoRegistro === 'firma' && camposBloqueados}
+            className={`input-field ${modoRegistro === 'firma' && camposBloqueados ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+          />
+        </div>
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de nacimiento</label>
             <input type="date" name="fecha_nacimiento" value={form.fecha_nacimiento} onChange={handleChange} required className="input-field" />

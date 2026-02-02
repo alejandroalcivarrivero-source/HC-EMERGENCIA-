@@ -50,6 +50,22 @@ const Usuario = sequelize.define('Usuario', {
   activo: {
     type: DataTypes.BOOLEAN,
     defaultValue: false
+  },
+  firma_p12: {
+    type: DataTypes.BLOB('long'), // LONGBLOB en MySQL
+    allowNull: true
+  },
+  firma_configurada: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
+  firma_vencimiento: {
+    type: DataTypes.DATEONLY,
+    allowNull: true
+  },
+  firma_serial: {
+    type: DataTypes.STRING,
+    allowNull: true
   }
 }, {
   tableName: 'USUARIOS_SISTEMA', // Nuevo nombre de la tabla en mayúsculas

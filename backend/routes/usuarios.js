@@ -1,16 +1,35 @@
 const express = require('express');
 const router = require('express').Router();
+const multer = require('multer'); // Importar multer
 const authController = require('../controllers/authController');
 const usuariosController = require('../controllers/usuariosController'); // Importar el objeto completo
 const validarToken = require('../middlewares/validarToken'); // Asumo que existe o lo crearé
 const validarAdmin = require('../middlewares/validarAdmin');
 const ubicacionesController = require('../controllers/ubicacionesController');
 
+// Configurar multer para carga de archivo de firma (memoria)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/x-pkcs12' ||
+        file.originalname.endsWith('.p12') ||
+        file.originalname.endsWith('.pfx')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo se permiten archivos .p12 o .pfx'));
+    }
+  }
+});
+
 // Login
 router.post('/login', authController.login);
 
-// Registro
-router.post('/registro', authController.registro);
+// Validar firma para autocompletado en registro (público)
+router.post('/validar-firma-registro', upload.single('p12'), authController.validarFirmaRegistro);
+
+// Registro (soporta carga de firma digital)
+router.post('/registro', upload.single('p12'), authController.registro);
 
 // Recuperar contraseña (envía email con enlace)
 router.post('/recuperar', authController.recuperar);

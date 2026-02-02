@@ -28,6 +28,7 @@ const AtencionEmergenciaPage = () => {
   const [motivoConsulta, setMotivoConsulta] = useState(null);
   const [showReasignarModal, setShowReasignarModal] = useState(false);
   const [alergias, setAlergias] = useState([]);
+  const [userRol, setUserRol] = useState(null);
 
   useEffect(() => {
     const fetchAtencionAndHistory = async () => {
@@ -36,6 +37,14 @@ const AtencionEmergenciaPage = () => {
         if (!token) {
           navigate('/login');
           return;
+        }
+
+        try {
+          const tokenData = JSON.parse(atob(token.split('.')[1]));
+          console.log('Datos del Usuario:', tokenData);
+          setUserRol(tokenData.rol_id);
+        } catch (e) {
+          console.error("Error al decodificar token:", e);
         }
 
         // Obtener datos de la admisión primero
@@ -248,7 +257,11 @@ const AtencionEmergenciaPage = () => {
         triaje={triaje}
         alergias={alergias}
         atencion={atencion} // Se sigue pasando 'atencion' para el estado de firma y ID
-        onReasignar={() => setShowReasignarModal(true)}
+        onReasignar={(() => {
+          const canReassign = [1, 2, 5].includes(Number(userRol));
+          console.log('Prop onReasignar calculada - UserRol:', userRol, 'Puede reasignar:', canReassign);
+          return canReassign ? () => setShowReasignarModal(true) : null;
+        })()}
         signosVitales={signosVitalesDetails}
         signosVitalesHistorial={signosVitalesHistorial}
         motivoConsulta={motivoConsulta}

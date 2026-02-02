@@ -426,9 +426,22 @@ exports.guardarCertificado = async (req, res) => {
     if (!req.file || !req.body.password) {
       return res.status(400).json({ message: 'Debe enviar el archivo .p12 y la contraseña.' });
     }
+
+    // Obtener usuario para validar CI
+    const usuario = await Usuario.findByPk(userId);
+    if (!usuario) return res.status(404).json({ message: 'Usuario no encontrado.' });
+
     const p12Buffer = req.file.buffer;
     const password = req.body.password.trim();
     const meta = extraerMetadatos(p12Buffer, password);
+
+    // Validación: La cédula del certificado debe coincidir con la del usuario registrado
+    if (meta.ci !== usuario.cedula) {
+      return res.status(400).json({
+        message: `El certificado pertenece a la cédula ${meta.ci}, pero su usuario está registrado con ${usuario.cedula}. No se puede guardar.`
+      });
+    }
+
     const { cipher, iv } = encrypt(p12Buffer);
     const [row] = await CertificadoFirma.findOrCreate({
       where: { usuarioId: userId },
@@ -512,6 +525,11 @@ exports.firmarConCertificadoGuardado = async (req, res) => {
       Buffer.isBuffer(certRow.p12Cifrado) ? certRow.p12Cifrado : Buffer.from(certRow.p12Cifrado),
       Buffer.isBuffer(certRow.iv) ? certRow.iv : Buffer.from(certRow.iv)
     );
+    
+    // Validar integridad del buffer descifrado
+    if (!p12Buffer || p12Buffer.length === 0) {
+        throw new Error('Error al descifrar el certificado: buffer vacío o clave incorrecta.');
+    }
     const { privateKey, metadatos } = abrirP12ParaFirma(p12Buffer, String(password).trim());
 
     const atencion = await AtencionEmergencia.findByPk(atencionId);

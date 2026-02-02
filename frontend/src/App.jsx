@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react'; // Importar useEffect, useRef y useState
 import './config/axios'; // Importar configuración de axios para interceptores globales
+import ProtectedRoute from './components/ProtectedRoute';
 import LoginForm from './components/LoginForm';
 import RegistroForm from './components/RegistroForm';
 import RecuperarForm from './components/RecuperarForm';
@@ -30,15 +31,42 @@ import FirmarAtencionPage from './pages/FirmarAtencionPage';
 import AtencionesEnCurso from './pages/AtencionesEnCurso';
 import AjustesFirmaElectronica from './pages/AjustesFirmaElectronica';
 
- function RutaPrivada({ children }) {
+ function PublicRoute({ children }) {
   const token = localStorage.getItem('token');
-  // Verificar que el token existe y no es una cadena vacía
-  return token && token.length > 0 ? children : <Navigate to="/" />;
+  if (token && token.length > 0) {
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const roleId = parseInt(payload.rol_id, 10);
+      if (roleId === 5) return <Navigate to="/dashboard" replace />;
+      return <Navigate to="/dashboard" replace />;
+    } catch (error) {
+      localStorage.removeItem('token'); // Token inválido
+    }
+  }
+  return children;
 }
 
-function PublicRoute({ children }) {
+function RedirectByRole() {
   const token = localStorage.getItem('token');
-  return token && token.length > 0 ? <Navigate to="/dashboard" /> : children;
+  if (!token) return <Navigate to="/" replace />;
+
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    const roleId = parseInt(payload.rol_id, 10);
+    
+    // Rol 1: Médico -> Dashboard
+    if (roleId === 1) return <Navigate to="/dashboard" replace />;
+    
+    // Rol 5: Administrador -> Dashboard
+    if (roleId === 5) return <Navigate to="/dashboard" replace />;
+
+    // Otros roles -> Dashboard por defecto
+    return <Navigate to="/dashboard" replace />;
+  } catch (e) {
+    console.error('Error al redirigir por rol:', e);
+    localStorage.removeItem('token');
+    return <Navigate to="/" replace />;
+  }
 }
  
 function App() {
@@ -93,146 +121,146 @@ function App() {
       <Route
         path="/dashboard"
         element={
-          <RutaPrivada>
+          <ProtectedRoute allowedRoles={[1, 2, 3, 4, 5]}>
             <Dashboard />
-          </RutaPrivada>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/admin/aprobar"
         element={
-          <RutaPrivada>
+          <ProtectedRoute allowedRoles={[5]}>
             <AdminAprobarUsuarios />
-          </RutaPrivada>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/admin/usuarios"
         element={
-          <RutaPrivada>
+          <ProtectedRoute allowedRoles={[5]}>
             <AdminUsuarios />
-          </RutaPrivada>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/admin/videos"
         element={
-          <RutaPrivada>
+          <ProtectedRoute allowedRoles={[5]}>
             <AdminVideos />
-          </RutaPrivada>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/reportes"
         element={
-          <RutaPrivada>
+          <ProtectedRoute allowedRoles={[1, 2, 3, 4, 5]}>
             <Reportes />
-          </RutaPrivada>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/admision"
         element={
-          <RutaPrivada>
+          <ProtectedRoute allowedRoles={[2, 3, 4]}>
             <Admision />
-          </RutaPrivada>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/signosvitales" // Ruta principal para la lista de pacientes admitidos
         element={
-          <RutaPrivada>
+          <ProtectedRoute allowedRoles={[2, 3, 4]}>
             <PacientesAdmitidos /> {/* Apuntar al componente renombrado */}
-          </RutaPrivada>
+          </ProtectedRoute>
         }
       />
       {/* Mantener la ruta original de toma de signos vitales, pero ajustarla si es necesario */}
       <Route
         path="/signosvitales/tomar/:admisionId" // Usar admisionId como en el controlador
         element={
-          <RutaPrivada>
+          <ProtectedRoute allowedRoles={[2, 3, 4]}>
             <SignosVitalesForm />
-          </RutaPrivada>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/historial"
         element={
-          <RutaPrivada>
+          <ProtectedRoute allowedRoles={[1, 2, 3, 4]}>
             <Historial />
-          </RutaPrivada>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/cambiar-contrasena"
         element={
-          <RutaPrivada>
+          <ProtectedRoute allowedRoles={[1, 2, 3, 4, 5]}>
             <CambiarContrasenaForm />
-          </RutaPrivada>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/procedimientos-emergencia/:pacienteId"
         element={
-          <RutaPrivada>
+          <ProtectedRoute allowedRoles={[1, 2, 3, 4]}>
             <ProcedimientosEmergencia />
-          </RutaPrivada>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/procedimientos-emergencia/:pacienteId/:admisionId"
         element={
-          <RutaPrivada>
+          <ProtectedRoute allowedRoles={[1, 2, 3, 4]}>
             <ProcedimientosEmergencia />
-          </RutaPrivada>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/seleccionar-paciente-procedimiento"
         element={
-          <RutaPrivada>
+          <ProtectedRoute allowedRoles={[1, 2, 3, 4]}>
             <SeleccionarPacienteProcedimiento />
-          </RutaPrivada>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/lista-espera"
         element={
-          <RutaPrivada>
+          <ProtectedRoute allowedRoles={[1, 2, 3, 4]}>
             <ListaEspera />
-          </RutaPrivada>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/atencion-emergencia-page/:admisionId"
         element={
-          <RutaPrivada>
+          <ProtectedRoute allowedRoles={[1, 2, 3, 4]}>
             <AtencionEmergenciaPage />
-          </RutaPrivada>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/atenciones-emergencia"
         element={
-          <RutaPrivada>
+          <ProtectedRoute allowedRoles={[1, 2, 3, 4]}>
             <AtencionesEmergenciaList />
-          </RutaPrivada>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/reportes/produccion-por-estado"
         element={
-          <RutaPrivada>
+          <ProtectedRoute allowedRoles={[1, 2, 3, 4, 5]}>
             <ProduccionPorEstado />
-          </RutaPrivada>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/lista-pacientes"
         element={
-          <RutaPrivada>
+          <ProtectedRoute allowedRoles={[1, 2, 3, 4]}>
             <ListaPacientesPage />
-          </RutaPrivada>
+          </ProtectedRoute>
         }
       />
       {/* Ruta pública para pantalla de turnero digital de EMERGENCIA (TV) */}
@@ -243,35 +271,38 @@ function App() {
       <Route
         path="/atenciones-en-curso"
         element={
-          <RutaPrivada>
+          <ProtectedRoute allowedRoles={[1, 2, 3, 4]}>
             <AtencionesEnCurso />
-          </RutaPrivada>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/pendientes-firma"
         element={
-          <RutaPrivada>
+          <ProtectedRoute allowedRoles={[1, 2, 3, 4]}>
             <DashboardPendientes />
-          </RutaPrivada>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/firmar-atencion/:atencionId"
         element={
-          <RutaPrivada>
+          <ProtectedRoute allowedRoles={[1, 2, 3, 4]}>
             <FirmarAtencionPage />
-          </RutaPrivada>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/ajustes/firma-electronica"
         element={
-          <RutaPrivada>
+          <ProtectedRoute allowedRoles={[1, 2, 3, 4]}>
             <AjustesFirmaElectronica />
-          </RutaPrivada>
+          </ProtectedRoute>
         }
       />
+      
+      {/* Ruta Comodín (*) para manejar 404 y redirecciones inteligentes */}
+      <Route path="*" element={<RedirectByRole />} />
     </Routes>
     <ConfirmModal
       message="Su sesión ha expirado, ingrese nuevamente."

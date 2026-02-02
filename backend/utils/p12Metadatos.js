@@ -31,14 +31,78 @@ function extraerMetadatos(p12Buffer, password) {
   const subject = cert.subject.attributes;
   const issuer = cert.issuer.attributes;
 
-  const getAttr = (attrs, shortName) => {
-    const a = attrs.find(x => x.shortName === shortName);
-    return a ? a.value : '';
+
+  const getAttrValue = (attrs, identifier) => {
+    // identifier can be name, shortName or type (OID)
+    const attr = attrs.find(a => a.name === identifier || a.shortName === identifier || a.type === identifier);
+    return attr ? attr.value : '';
   };
 
-  const nombre = getAttr(subject, 'commonName') || getAttr(subject, 'CN') || '';
-  const ci = getAttr(subject, 'serialNumber') || getAttr(subject, '2.5.4.5') || '';
-  const entidadEmisora = getAttr(issuer, 'commonName') || getAttr(issuer, 'O') || '';
+  const nombre = getAttrValue(subject, 'commonName') || getAttrValue(subject, 'CN') || '';
+
+  // Lógica de extracción de Cédula Robustecida (Universal Ecuador)
+  let ci = '';
+  
+  // Buscar también en serialNumber (OID 2.5.4.5) que suele contener la cédula en certificados de persona física
+  const serialNumber = getAttrValue(subject, 'serialNumber') || getAttrValue(subject, 'SN');
+
+  const extraerDigitosCedula = (val) => {
+    if (!val || typeof val !== 'string') return null;
+    let s = val.trim();
+    
+    // 1. Limpieza de prefijos comunes en certificados
+    if (s.toUpperCase().startsWith('CED-')) s = s.substring(4);
+    else if (s.toUpperCase().startsWith('PAS-')) s = s.substring(4);
+    else if (s.toUpperCase().startsWith('RUC-')) s = s.substring(4);
+    
+    // 2. Intentar extraer los primeros 10 dígitos encontrados
+    const match = s.match(/\d{10}/);
+    return match ? match[0] : null;
+  };
+
+  // 1. Estrategia Exhaustiva: Extensiones (Prioridad Banco Central y BCE)
+  // Se busca en OIDs conocidos donde se almacena la cédula/RUC en certificados ecuatorianos.
+  if (cert.extensions) {
+    const oidsBCE = [
+      '1.3.6.1.4.1.37947.3.11',  // OID identificado en depuración (Banco Central)
+      '1.3.6.1.4.1.37947.3.1.1'  // Variante común antigua
+    ];
+
+    for (const oid of oidsBCE) {
+      const ext = cert.extensions.find(e => e.id === oid);
+      if (ext && ext.value) {
+        // La extensión contiene datos binarios (o ASN.1). Buscamos el primer patrón de 10 dígitos.
+        // Esto captura la Cédula incluso si viene dentro de un RUC (primeros 10 dígitos).
+        const match = ext.value.match(/\d{10}/);
+        if (match) {
+          ci = match[0];
+          break; // Detener búsqueda si ya encontramos la cédula
+        }
+      }
+    }
+  }
+
+  // 2. Estrategia: Buscar explícitamente en serialNumber (si existe)
+  if (!ci && serialNumber) {
+      const match = serialNumber.match(/\d{10}/);
+      if (match) ci = match[0];
+  }
+
+  // 3. Estrategia de Respaldo: Búsqueda profunda en Subject
+  // Si no se encontró en extensiones ni serialNumber, busca en cualquier atributo del subject que contenga 10 dígitos.
+  if (!ci) {
+    for (const attr of subject) {
+      if (attr.value && typeof attr.value === 'string') {
+        const match = attr.value.match(/\d{10}/);
+        if (match) {
+          ci = match[0];
+          break;
+        }
+      }
+    }
+  }
+
+  const entidadEmisora = getAttrValue(issuer, 'commonName') || getAttrValue(issuer, 'O') || '';
   let fechaExpiracionNorm = '';
   if (cert.validity && cert.validity.notAfter) {
     const d = cert.validity.notAfter;

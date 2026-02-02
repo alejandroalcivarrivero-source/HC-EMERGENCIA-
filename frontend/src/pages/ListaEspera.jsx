@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import Header from '../components/Header';
 import ReasignarPacienteModal from '../components/ReasignarPacienteModal'; // Importar el nuevo componente
 
@@ -9,6 +9,7 @@ const ListaEspera = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const navigate = useNavigate();
+  const location = useLocation();
   const [currentUserId, setCurrentUserId] = useState(null); // Estado para almacenar el ID del usuario actual
   const [isReasignModalOpen, setIsReasignModalOpen] = useState(false); // Estado para controlar la visibilidad del modal
   const [selectedAdmisionToReasign, setSelectedAdmisionToReasign] = useState(null); // Estado para la admisión a reasignar
@@ -26,8 +27,22 @@ const ListaEspera = () => {
       const decodedToken = JSON.parse(atob(token.split('.')[1])); // Decodificación básica, considerar una librería como jwt-decode
       setCurrentUserId(decodedToken.id); // Asumiendo que el ID del usuario está en 'id'
 
-      // Usar el endpoint de lista de espera que ordena por triaje y filtra por SIGNOS_VITALES
-      const response = await axios.get('http://localhost:3001/api/atencion-paciente-estado/espera', {
+      // Obtener parámetros de búsqueda para filtros
+      const queryParams = new URLSearchParams(location.search);
+      const filtro = queryParams.get('filtro');
+
+      // Determinar los estados a consultar
+      // Si el filtro es 'prioritarios', nos enfocamos en pacientes listos (SIGNOS_VITALES) y en atención (para reasignar)
+      // Si no hay filtro, traemos todo como antes
+      const estados = filtro === 'prioritarios'
+        ? 'SIGNOS_VITALES,EN_ATENCION'
+        : 'SIGNOS_VITALES,ESPERA_MEDICO,EN_ATENCION';
+
+      // Usar el endpoint general y filtrar por estados para incluir EN_ATENCION y permitir reasignación
+      const response = await axios.get('http://localhost:3001/api/atencion-paciente-estado/estados-medico', {
+        params: {
+          estados: estados
+        },
         headers: {
           Authorization: `Bearer ${token}`
         }
@@ -141,7 +156,7 @@ const ListaEspera = () => {
     // OPTIMIZACIÓN: Aumentar intervalo a 30 segundos para reducir carga del servidor
     const interval = setInterval(fetchPacientesEnEspera, 30000); // Actualizar cada 30 segundos
     return () => clearInterval(interval);
-  }, [navigate]);
+  }, [navigate, location.search]);
 
 
   const handleAtenderPaciente = async (admisionId) => {
@@ -266,8 +281,8 @@ const ListaEspera = () => {
                 const tokenData = token ? JSON.parse(atob(token.split('.')[1])) : null;
                 const userRolId = tokenData ? tokenData.rol_id : null;
 
-                // Botón Atender: Visible para administradores (rol_id 1) y médicos (rol_id 2) si el paciente está SIGNOS_VITALES o FALLECIDO
-                const canAttend = userRolId === 1 || userRolId === 2;
+                // Botón Atender: Visible para administradores (rol_id 5) y médicos (rol_id 1) si el paciente está SIGNOS_VITALES o FALLECIDO
+                const canAttend = userRolId === 1 || userRolId === 2 || userRolId === 5;
                 const isPreparedOrDeceased = paciente.estadoPaciente === 'SIGNOS_VITALES' || paciente.estadoPaciente === 'FALLECIDO';
                 const tieneAtencionPendiente = atencionesExistentes[paciente.admisionId] || paciente.tieneAtencionPendiente;
                 const showAttendButton = currentUserId && canAttend && isPreparedOrDeceased && !tieneAtencionPendiente;
@@ -373,8 +388,8 @@ const ListaEspera = () => {
                           Continuar Atención
                         </button>
                       )}
-                      {/* Botón Continuar Atención: Para administradores (rol_id 1) o médicos (rol_id 2) si el paciente está EN_ATENCION y asignado a este médico */}
-                      {currentUserId && (userRolId === 1 || userRolId === 2) && paciente.estadoPaciente === 'EN_ATENCION' && paciente.usuarioResponsableId === currentUserId && !showContinuarButton && (
+                      {/* Botón Continuar Atención: Para administradores (rol_id 5) o médicos (rol_id 1) si el paciente está EN_ATENCION y asignado a este médico */}
+                      {currentUserId && (userRolId === 1 || userRolId === 2 || userRolId === 5) && paciente.estadoPaciente === 'EN_ATENCION' && paciente.usuarioResponsableId === currentUserId && !showContinuarButton && (
                         <button
                           onClick={() => navigate(`/atencion-emergencia-page/${paciente.admisionId}`)}
                           className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded text-sm flex-grow sm:flex-grow-0"
@@ -382,8 +397,8 @@ const ListaEspera = () => {
                           Continuar Atención
                         </button>
                       )}
-                      {/* Botón Reasignar Paciente: Para administradores (rol_id 1) o médicos (rol_id 2) si el paciente está EN_ATENCION y no asignado a este médico o no tiene médico asignado */}
-                      {currentUserId && paciente.estadoPaciente === 'EN_ATENCION' && ((userRolId === 1) || (userRolId === 2 && (paciente.usuarioResponsableId !== currentUserId || !paciente.usuarioResponsableId))) && (
+                      {/* Botón Reasignar Paciente: Para administradores (rol_id 5) o médicos (rol_id 1) si el paciente está EN_ATENCION */}
+                      {currentUserId && paciente.estadoPaciente === 'EN_ATENCION' && (userRolId === 1 || userRolId === 2 || userRolId === 5) && (
                         <button
                           onClick={() => handleOpenReasignModal(paciente.admisionId, paciente.usuarioResponsableId)}
                           className="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-1 px-3 rounded text-sm flex-grow sm:flex-grow-0"

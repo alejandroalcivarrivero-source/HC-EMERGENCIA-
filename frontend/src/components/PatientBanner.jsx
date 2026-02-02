@@ -41,6 +41,23 @@ const TrendIcon = ({ direction }) => {
  */
 const PatientBanner = ({ paciente, admision, triaje, alergias = [], atencion, onReasignar, signosVitales, signosVitalesHistorial = [], motivoConsulta }) => {
   const { isSidebarOpen } = useSidebar();
+  const [userRoleId, setUserRoleId] = React.useState(null);
+
+  React.useEffect(() => {
+    try {
+      const token = localStorage.getItem('token');
+      if (token) {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        if (payload.rol_id) {
+          setUserRoleId(parseInt(payload.rol_id, 10));
+        }
+      }
+    } catch (e) {
+      console.error('Error al obtener rol en Banner:', e);
+    }
+  }, []);
+
+  console.log('Prop onReasignar enviada:', !!onReasignar);
   
   if (!paciente || !admision) return null;
 
@@ -66,8 +83,8 @@ const PatientBanner = ({ paciente, admision, triaje, alergias = [], atencion, on
 
   return (
     <div
-      className="sticky top-0 z-50 bg-white border-b border-gray-100 shadow-sm transition-all duration-300"
-      style={{ 
+      className="sticky top-0 z-[500] bg-white border-b border-gray-100 shadow-sm transition-all duration-300"
+      style={{
         fontFamily: "'Inter', 'Roboto', sans-serif",
         marginLeft: isSidebarOpen ? '256px' : '0'
       }}
@@ -104,12 +121,11 @@ const PatientBanner = ({ paciente, admision, triaje, alergias = [], atencion, on
                 </div>
               </div>
               {/* Botón Reasignar reemplaza el badge de triaje */}
-              {atencion && atencion.estadoFirma !== 'FINALIZADO_FIRMADO' && onReasignar && (
+              {atencion && atencion.estadoFirma !== 'FINALIZADO_FIRMADO' && onReasignar && (userRoleId === 1 || userRoleId === 5) && (
                 <button
                   onClick={onReasignar}
-                  className="shrink-0 flex items-center gap-2 px-4 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-xs font-semibold shadow-sm"
+                  className="shrink-0 px-3 py-1.5 bg-transparent text-gray-500 border border-gray-300 rounded-lg hover:bg-gray-50 hover:text-gray-700 transition-colors text-xs font-medium"
                 >
-                  <UserSearch className="w-3.5 h-3.5" />
                   Reasignar
                 </button>
               )}

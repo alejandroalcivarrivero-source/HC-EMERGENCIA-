@@ -6,16 +6,14 @@ import { useSidebar } from '../contexts/SidebarContext';
 /** Solo operativo: uso clínico diario */
 export const mainLinksMedico = [
   { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
+  { name: 'Pacientes en Espera', path: '/lista-espera', icon: Users },
   { name: 'Atenciones en Curso', path: '/atenciones-en-curso', icon: RefreshCw },
   { name: 'Bandeja de Pendientes', path: '/pendientes-firma', icon: FileCheck },
-  { name: 'Admisión', path: '/admision', icon: FileEdit },
-  { name: 'Lista de Espera', path: '/lista-espera', icon: Users },
 ];
 
 /** No operativo: agrupado en Ajustes */
 export const ajustesLinksMedico = [
   { name: 'Firma Electrónica', path: '/ajustes/firma-electronica', icon: FileKey },
-  { name: 'Listado de Atenciones', path: '/atenciones-emergencia', icon: List },
   { name: 'Historial', path: '/historial', icon: History },
   { name: 'Reportes', path: '/reportes', icon: BarChart3 },
 ];
@@ -23,19 +21,18 @@ export const ajustesLinksMedico = [
 export const quickAccessLinks = {
     3: [
       { name: 'Admisión', path: '/admision', icon: FileEdit },
+      { name: 'Pacientes en Espera', path: '/lista-espera', icon: Users },
       { name: 'Gestión de Pacientes', path: '/signosvitales', icon: Users },
       { name: 'Mis Reportes', path: '/reportes', icon: BarChart3 },
     ],
     1: null,
-    2: [{ name: 'Reportes', path: '/reportes', icon: BarChart3 }],
+    2: [
+      { name: 'Pacientes en Espera', path: '/lista-espera', icon: Users },
+      { name: 'Reportes', path: '/reportes', icon: BarChart3 }
+    ],
     4: [{ name: 'Reportes', path: '/reportes', icon: BarChart3 }],
     5: [
       { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
-      { name: 'Atenciones en Curso', path: '/atenciones-en-curso', icon: RefreshCw },
-      { name: 'Bandeja de Pendientes', path: '/pendientes-firma', icon: FileCheck },
-      { name: 'Admisión', path: '/admision', icon: FileEdit },
-      { name: 'Lista de Espera', path: '/lista-espera', icon: Users },
-      { separator: true },
       { name: 'Gestión de Usuarios', path: '/admin/usuarios', icon: Users },
       { name: 'Videos', path: '/admin/videos', icon: FileText },
       { name: 'Reportes Globales', path: '/reportes', icon: BarChart3 },
@@ -72,8 +69,9 @@ export default function Header() {
           setUserName(payload.cedula);
         }
         if (payload.rol_id) {
-          setUserRole(roles[payload.rol_id] || 'Desconocido');
-          setUserRoleId(payload.rol_id); // Guardar el rol_id
+          const rid = parseInt(payload.rol_id, 10);
+          setUserRole(roles[rid] || 'Desconocido');
+          setUserRoleId(rid); // Guardar el rol_id como entero
         }
       } catch (error) {
         console.error('Error decodificando el token:', error);
@@ -113,7 +111,7 @@ export default function Header() {
 
   return (
     <>
-      <header className="bg-blue-600 text-white py-4 px-6 flex justify-between items-center shadow">
+      <header className="bg-blue-600 text-white py-4 px-6 flex justify-between items-center shadow relative z-[3000]">
         <div className="flex items-center">
           {/* Botón para abrir/cerrar la barra lateral */}
           <button
@@ -135,7 +133,7 @@ export default function Header() {
         </div>
         <div className="flex-grow flex justify-center items-center cursor-pointer" onClick={() => navigate('/dashboard')}>
         </div>
-        <div className="relative" ref={dropdownRef}>
+        <div className="relative z-[3000]" ref={dropdownRef}>
           <button
             onClick={() => setDropdownOpen(!dropdownOpen)}
             className="flex flex-col items-end space-y-0 hover:underline focus:outline-none"
@@ -153,7 +151,7 @@ export default function Header() {
             </svg>
           </button>
           {dropdownOpen && (
-            <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50">
+          <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-md shadow-lg py-1 z-[3000]">
               <button
                 onClick={cambiarContrasena}
                 className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left"
@@ -180,7 +178,8 @@ export default function Header() {
           <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Menú</h2>
           <nav>
             <ul className="space-y-0.5">
-              {userRoleId === 1 && (
+              {/* Menú para Médicos (1) y Obstetrices (2) */}
+              {(userRoleId === 1 || userRoleId === 2) && (
                 <>
                   {mainLinksMedico.map((link) => {
                     const Icon = link.icon;
@@ -233,7 +232,23 @@ export default function Header() {
                   </li>
                 </>
               )}
-              {userRoleId && userRoleId !== 1 && quickAccessLinks[userRoleId] && quickAccessLinks[userRoleId].map((link, idx) => {
+
+              {/* Menú para Administradores (5) - VISIBILIDAD FORZADA */}
+              {userRoleId === 5 && quickAccessLinks[5] && quickAccessLinks[5].map((link, idx) => (
+                 <li key={link.name}>
+                   <a
+                     href={link.path}
+                     className="flex items-center gap-3 py-2.5 px-4 rounded-xl hover:bg-white/10 transition-colors text-white"
+                     onClick={(e) => { e.preventDefault(); navigate(link.path); setIsSidebarOpen(false); }}
+                   >
+                     {link.icon && <link.icon className="w-5 h-5 text-gray-300 shrink-0" />}
+                     <span className="font-medium text-sm">{link.name}</span>
+                   </a>
+                 </li>
+              ))}
+
+              {/* Menú para Otros Roles (3, 4, etc.) excluyendo 1, 2 y 5 que ya fueron manejados */}
+              {userRoleId && userRoleId !== 1 && userRoleId !== 2 && userRoleId !== 5 && quickAccessLinks[userRoleId] && quickAccessLinks[userRoleId].map((link, idx) => {
                 if (link.separator) return <li key={`sep-${idx}`}><div className="my-2 border-t border-gray-600" /></li>;
                 const Icon = link.icon;
                 return (

@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import Header from '../components/Header';
 import { mainLinksMedico, quickAccessLinks } from '../components/Header';
-import { FileText, Clock, User, Users, PenLine, ShieldAlert } from 'lucide-react';
+import { FileText, Clock, User, Users, PenLine, ShieldAlert, BarChart3, Activity, Stethoscope, UserCheck } from 'lucide-react';
 import { format } from 'date-fns';
 
 export default function Dashboard() {
@@ -82,11 +82,124 @@ export default function Dashboard() {
 
           {usuario ? (
             <div>
-              {/* KPIs */}
-              {(usuario.rol_id === 1 || usuario.rol_id === 5) && (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+              {/* Dashboard Administrativo (ID 5) */}
+              {usuario.rol_id === 5 && (
+                <div className="space-y-6">
+                  {/* Tarjetas de Indicadores */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center">
+                        <Users className="w-6 h-6 text-blue-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-500">Usuarios Activos</p>
+                        <p className="text-2xl font-bold text-gray-800">24</p>
+                      </div>
+                    </div>
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-lg bg-emerald-100 flex items-center justify-center">
+                        <Stethoscope className="w-6 h-6 text-emerald-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-500">Médicos en Turno</p>
+                        <p className="text-2xl font-bold text-gray-800">8</p>
+                      </div>
+                    </div>
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-lg bg-amber-100 flex items-center justify-center">
+                        <Activity className="w-6 h-6 text-amber-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-500">Atenciones Totales del Día</p>
+                        <p className="text-2xl font-bold text-gray-800">45</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Gráfico Simple Distribución Triage */}
+                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                    <h3 className="text-lg font-semibold text-gray-800 mb-4">Distribución por Prioridad (Triage)</h3>
+                    <div className="space-y-4">
+                      <div>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-red-600 font-medium">Emergencia (Rojo)</span>
+                          <span className="text-gray-600">12%</span>
+                        </div>
+                        <div className="w-full bg-gray-100 rounded-full h-2.5">
+                          <div className="bg-red-500 h-2.5 rounded-full" style={{ width: '12%' }}></div>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-orange-600 font-medium">Urgencia Mayor (Naranja)</span>
+                          <span className="text-gray-600">28%</span>
+                        </div>
+                        <div className="w-full bg-gray-100 rounded-full h-2.5">
+                          <div className="bg-orange-500 h-2.5 rounded-full" style={{ width: '28%' }}></div>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-yellow-600 font-medium">Urgencia Menor (Amarillo)</span>
+                          <span className="text-gray-600">35%</span>
+                        </div>
+                        <div className="w-full bg-gray-100 rounded-full h-2.5">
+                          <div className="bg-yellow-500 h-2.5 rounded-full" style={{ width: '35%' }}></div>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-green-600 font-medium">No Urgente (Verde)</span>
+                          <span className="text-gray-600">15%</span>
+                        </div>
+                        <div className="w-full bg-gray-100 rounded-full h-2.5">
+                          <div className="bg-green-500 h-2.5 rounded-full" style={{ width: '15%' }}></div>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-blue-600 font-medium">Consulta (Azul)</span>
+                          <span className="text-gray-600">10%</span>
+                        </div>
+                        <div className="w-full bg-gray-100 rounded-full h-2.5">
+                          <div className="bg-blue-500 h-2.5 rounded-full" style={{ width: '10%' }}></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Accesos Rápidos Admin */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <Link
+                      to="/admin/usuarios"
+                      className="p-4 bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-3 text-blue-600 font-semibold"
+                    >
+                      <Users className="w-5 h-5" />
+                      Gestión de Usuarios
+                    </Link>
+                    <Link
+                      to="/admin/usuarios" // Redirige a gestión, donde se aprueban
+                      className="p-4 bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-3 text-amber-600 font-semibold"
+                    >
+                      <UserCheck className="w-5 h-5" />
+                      Aprobar Usuarios Pendientes
+                    </Link>
+                    <Link
+                      to="/reportes"
+                      className="p-4 bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-3 text-emerald-600 font-semibold"
+                    >
+                      <BarChart3 className="w-5 h-5" />
+                      Reportes Globales
+                    </Link>
+                  </div>
+                </div>
+              )}
+
+              {/* KPIs Clínicos (Médicos y Otros) */}
+              {(usuario.rol_id === 1 || usuario.rol_id === 2) && (
+                <div className={`grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8`}>
                   <Link
-                    to="/lista-espera"
+                    to="/lista-espera?filtro=prioritarios"
                     className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 hover:shadow-md hover:border-gray-200 transition-all flex items-center gap-4"
                   >
                     <div className="w-12 h-12 rounded-lg bg-amber-100 flex items-center justify-center">
@@ -131,7 +244,7 @@ export default function Dashboard() {
               )}
 
               {/* Atenciones en Curso */}
-              {(usuario.rol_id === 1 || usuario.rol_id === 5) && (
+              {(usuario.rol_id === 1 || usuario.rol_id === 2) && (
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-6">
                   <div className="flex items-center justify-between mb-4">
                     <h2 className="text-xl font-semibold text-gray-800 flex items-center gap-2" style={{ fontFamily: "'Inter', 'Roboto', sans-serif" }}>

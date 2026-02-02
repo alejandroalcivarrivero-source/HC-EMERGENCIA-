@@ -125,7 +125,7 @@ httpServer.listen(PORT, () => {
       .then(async () => {
         console.log('✅ Conexión a la base de datos establecida.');
         // Inicializar asociaciones después de cargar todos los modelos
-        initAssociations();
+        // initAssociations(); // COMENTADO: Ya se inicializan en la línea 114
         console.log('✅ Modelos sincronizados con la base de datos.');
 
         // Iniciar la tarea programada
@@ -141,7 +141,7 @@ httpServer.listen(PORT, () => {
     sequelize.authenticate()
       .then(async () => {
         console.log('✅ Conexión a la base de datos establecida.');
-        initAssociations();
+        // initAssociations(); // COMENTADO: Ya se inicializan en la línea 114
         console.log('✅ Modelos sincronizados con la base de datos.');
         startPatientStatusCheck();
         console.log('✅ Tarea programada de verificación de estado de pacientes iniciada.');

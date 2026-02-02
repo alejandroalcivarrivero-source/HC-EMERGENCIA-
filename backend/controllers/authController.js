@@ -1,6 +1,8 @@
 const jwt = require('jsonwebtoken');
 const Usuario = require('../models/usuario');
 const Rol = require('../models/rol');
+const { extraerMetadatos } = require('../utils/p12Metadatos');
+const { encrypt } = require('../utils/cryptoFirma');
 const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
 
@@ -58,11 +60,114 @@ exports.login = async (req, res) => {
 // REGISTRO
 exports.registro = async (req, res) => {
   try {
-    const usuario = await Usuario.create(req.body);
+    let userData = { ...req.body };
+
+    // 1. Verificar duplicados (Validación explícita)
+    const existingUser = await Usuario.findOne({ where: { cedula: userData.cedula } });
+    if (existingUser) {
+      return res.status(400).json({ message: 'El número de cédula ya se encuentra registrado en el sistema.' });
+    }
+
+    // Validación y procesamiento de archivo .p12 (si se envió)
+    if (req.file) {
+      const passwordFirma = req.body.password_firma;
+      if (!passwordFirma) {
+        return res.status(400).json({ message: 'Debe proporcionar la contraseña del certificado para validarlo.' });
+      }
+
+      try {
+        // 2. Validar y extraer metadatos
+        const meta = extraerMetadatos(req.file.buffer, passwordFirma);
+        
+        // 3. Validar consistencia (si el usuario ingresó cédula manual)
+        if (userData.cedula && userData.cedula !== meta.ci) {
+          return res.status(400).json({
+            message: `La cédula ingresada (${userData.cedula}) no coincide con la del certificado (${meta.ci}).`
+          });
+        }
+        
+        // Forzar la cédula del certificado para evitar errores humanos
+        userData.cedula = meta.ci;
+
+        // Intentar autocompletar nombres/apellidos si están vacíos
+        if (!userData.nombres || !userData.apellidos) {
+            const partes = meta.nombre.split(' ');
+            if (partes.length >= 4) {
+                if (!userData.nombres) userData.nombres = partes.slice(0, 2).join(' ');
+                if (!userData.apellidos) userData.apellidos = partes.slice(2).join(' ');
+            } else if (partes.length >= 2) {
+                if (!userData.nombres) userData.nombres = partes[0];
+                if (!userData.apellidos) userData.apellidos = partes.slice(1).join(' ');
+            }
+        }
+
+        // 4. Cifrar archivo y preparar datos para USUARIOS_SISTEMA
+        // NOTA: Guardamos el archivo cifrado completo en firma_p12
+        const { cipher, iv } = encrypt(req.file.buffer);
+        
+        // Concatenamos IV + Ciphertext (que ya incluye el AuthTag) para almacenamiento único
+        const p12Blob = Buffer.concat([iv, cipher]);
+        
+        userData.firma_p12 = p12Blob;
+        userData.firma_configurada = true;
+        userData.firma_vencimiento = meta.fechaExpiracion;
+        userData.firma_serial = meta.serialNumber || 'SN-NO-DISPONIBLE'; // Asegurar valor
+
+      } catch (err) {
+        return res.status(400).json({ message: 'Error al procesar el archivo de firma: ' + err.message });
+      }
+    }
+
+    // Crear Usuario con los datos de firma integrados
+    const usuario = await Usuario.create(userData);
+
     res.status(201).json({ mensaje: 'Usuario registrado correctamente' });
   } catch (error) {
     console.error('Error en registro:', error);
-    res.status(500).json({ mensaje: 'Error al registrar usuario', error });
+    res.status(500).json({ mensaje: 'Error al registrar usuario', error: error.message || error });
+  }
+};
+
+// Validar firma para registro (Autocompletado)
+exports.validarFirmaRegistro = async (req, res) => {
+  try {
+    if (!req.file || !req.body.password_firma) {
+      return res.status(400).json({ message: 'Debe enviar el archivo .p12 y la contraseña.' });
+    }
+    
+    const meta = extraerMetadatos(req.file.buffer, req.body.password_firma);
+    
+    // Intentar separar nombres y apellidos de la cadena completa "APELLIDOS NOMBRES"
+    const partes = meta.nombre.trim().split(/\s+/);
+    let nombres = '';
+    let apellidos = '';
+    
+    // CORRECCIÓN SOLICITADA: El formato es NOMBRE1 NOMBRE2 APELLIDO1 APELLIDO2
+    // Asegurar que ANDRES ALEJANDRO vaya a Nombres y ALCIVAR RIVERO a Apellidos
+    if (partes.length >= 4) {
+        nombres = partes.slice(0, 2).join(' ');
+        apellidos = partes.slice(2).join(' ');
+    } else if (partes.length === 3) {
+        // Caso ambiguo: Nombre Apellido1 Apellido2 ó Nombre1 Nombre2 Apellido
+        // Asumiremos Nombre Apellido1 Apellido2 por ser más común en registros
+        nombres = partes[0];
+        apellidos = partes.slice(1).join(' ');
+    } else if (partes.length === 2) {
+        nombres = partes[0];
+        apellidos = partes[1];
+    } else {
+        nombres = meta.nombre; // Fallback
+    }
+
+    res.json({
+      cedula: meta.ci,
+      nombres: nombres.toUpperCase(),
+      apellidos: apellidos.toUpperCase(),
+      nombreCompleto: meta.nombre
+    });
+
+  } catch (error) {
+    res.status(400).json({ message: 'Error al leer el certificado: ' + error.message });
   }
 };
 

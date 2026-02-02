@@ -1,0 +1,6 @@
+ALTER TABLE temporal_guardado 
+ADD COLUMN updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+
+-- Si createdAt también falta o necesita arreglo:
+-- ALTER TABLE temporal_guardado 
+-- ADD COLUMN createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP;

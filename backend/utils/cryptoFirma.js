@@ -14,7 +14,9 @@ const TAG_LEN = 16;
 function getEncryptionKey() {
   const raw = process.env.FERME_ENCRYPTION_KEY;
   if (!raw || raw.length < 16) {
-    throw new Error('FERME_ENCRYPTION_KEY debe tener al menos 16 caracteres en .env');
+    console.warn('ADVERTENCIA: FIRMA_ENCRYPTION_KEY no definida o insegura. Usando clave de respaldo para desarrollo.');
+    // Clave de respaldo de 32 bytes (NO USAR EN PRODUCCIÓN REAL SIN CONFIGURAR .ENV)
+    return crypto.scryptSync('clave-segura-por-defecto-hc-emergencia-2026', 'hc-emergencia-ferme-salt', KEY_LEN);
   }
   return crypto.scryptSync(raw, 'hc-emergencia-ferme-salt', KEY_LEN);
 }

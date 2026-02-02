@@ -7,7 +7,7 @@ const validarToken = require('../middlewares/validarToken');
 router.get('/estados-medico', validarToken, atencionPacienteEstadoController.getPacientesPorEstadoMedico);
 // Ruta para obtener pacientes en estado 'SIGNOS_VITALES' (lista de espera)
 router.get('/espera', validarToken, (req, res, next) => {
-  req.query.estados = 'SIGNOS_VITALES'; // Cambiar de 'PREPARADO' a 'SIGNOS_VITALES'
+  req.query.estados = 'SIGNOS_VITALES,ESPERA_MEDICO'; // Cambiar de 'PREPARADO' a 'SIGNOS_VITALES' o 'ESPERA_MEDICO'
   atencionPacienteEstadoController.getPacientesPorEstadoMedico(req, res, next);
 });
 

@@ -26,7 +26,12 @@ export default function LoginForm() {
         // Guardar el ID del usuario explícitamente
         localStorage.setItem('userId', data.user.id);
       }
-      navigate('/dashboard');
+      
+      if (data.user && data.user.rol_id === 5) {
+        navigate('/admin/usuarios');
+      } else {
+        navigate('/dashboard');
+      }
     } catch (err) {
       setError(err.message);
     }
