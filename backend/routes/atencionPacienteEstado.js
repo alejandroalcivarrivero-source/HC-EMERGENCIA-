@@ -3,6 +3,9 @@ const router = express.Router();
 const atencionPacienteEstadoController = require('../controllers/atencionPacienteEstadoController');
 const validarToken = require('../middlewares/validarToken');
 
+// Ruta para obtener los últimos llamados (público para TV)
+router.get('/ultimos-llamados', atencionPacienteEstadoController.getUltimosLlamados);
+
 // Ruta para obtener la lista de pacientes en espera (estado 'SIGNOS_VITALES')
 router.get('/estados-medico', validarToken, atencionPacienteEstadoController.getPacientesPorEstadoMedico);
 // Ruta para obtener pacientes en estado 'SIGNOS_VITALES' (lista de espera)

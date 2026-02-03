@@ -3,7 +3,7 @@ const sequelize = require('../config/database');
 const Admision = require('./admisiones');
 const Usuario = require('./usuario');
 
-const RecetaMedica = sequelize.define('RecetaMedica', {
+const Referencia = sequelize.define('Referencia', {
   id: {
     type: DataTypes.INTEGER,
     primaryKey: true,
@@ -26,31 +26,51 @@ const RecetaMedica = sequelize.define('RecetaMedica', {
       tableName: 'USUARIOS_SISTEMA'
     }
   },
-  fechaEmision: {
-    type: DataTypes.DATEONLY,
-    allowNull: false,
-    defaultValue: DataTypes.NOW
-  },
-  medicamentos: {
-    type: DataTypes.TEXT, // JSON string de array de objetos {nombre: '', via: '', dosis: '', posologia: '', dias: null}
-    allowNull: false
-  },
-  observaciones: {
-    type: DataTypes.TEXT,
-    allowNull: true
-  },
   correlativo: {
     type: DataTypes.STRING,
     allowNull: false,
     unique: true
   },
+  fechaEmision: {
+    type: DataTypes.DATEONLY,
+    allowNull: false,
+    defaultValue: DataTypes.NOW
+  },
+  establecimientoDestino: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  servicioDestino: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  motivoReferencia: {
+    type: DataTypes.TEXT,
+    allowNull: false
+  },
+  resumenCuadroClinico: {
+    type: DataTypes.TEXT,
+    allowNull: false
+  },
+  hallazgosRelevantes: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  diagnosticoCIE10: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  planTratamiento: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
   firmaElectronica: {
-    type: DataTypes.TEXT, // Almacenar la firma electrónica (hash o referencia)
-    allowNull: false // Será obligatorio en la lógica de negocio
+    type: DataTypes.TEXT,
+    allowNull: true
   }
 }, {
   timestamps: true,
-  tableName: 'RECETAS_MEDICAS'
+  tableName: 'REFERENCIAS_053'
 });
 
-module.exports = RecetaMedica;
+module.exports = Referencia;

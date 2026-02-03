@@ -35,6 +35,11 @@ const OrdenImagen = sequelize.define('OrdenImagen', {
     type: DataTypes.STRING,
     allowNull: false
   },
+  correlativo: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    unique: true
+  },
   observaciones: {
     type: DataTypes.TEXT,
     allowNull: true

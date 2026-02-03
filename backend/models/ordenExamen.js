@@ -35,6 +35,11 @@ const OrdenExamen = sequelize.define('OrdenExamen', {
     type: DataTypes.STRING,
     allowNull: false
   },
+  correlativo: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    unique: true
+  },
   observaciones: {
     type: DataTypes.TEXT,
     allowNull: true

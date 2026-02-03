@@ -7,24 +7,12 @@ import OrdenExamenForm from './OrdenExamenForm'; // Importar el componente de Or
 import OrdenImagenForm from './OrdenImagenForm'; // Importar el componente de Orden de Imagen
 import AtencionInicial from './AtencionInicial'; // Importar componente refactorizado
 import EventoTraumatico from './EventoTraumatico'; // Importar componente refactorizado
+import AntecedentesPatologicos from './AntecedentesPatologicos'; // Importar componente refactorizado
+import ExamenFisico from './ExamenFisico'; // Importar componente refactorizado
 import DiagnosticosCIE10 from './DiagnosticosCIE10'; // Importar componente de diagnósticos
 import { Trash2, PlusCircle, AlertCircle, FileText } from 'lucide-react'; // Nuevos íconos
 
-const API_BASE = 'http://localhost:3001/api';
-
-/** Campos oficiales MSP Sección E (Antecedentes Patológicos) – orden y etiquetas */
-const CAMPOS_ANTECEDENTES = [
-  { key: 'alergicos', label: 'Alérgicos', num: 1 },
-  { key: 'clinicos', label: 'Clínicos', num: 2 },
-  { key: 'ginecologicos', label: 'Ginecológicos', num: 3 },
-  { key: 'traumaticos', label: 'Traumatológicos', num: 4 },
-  { key: 'pediatricos', label: 'Pediátricos', num: 5 },
-  { key: 'quirurgicos', label: 'Quirúrgicos', num: 6 },
-  { key: 'farmacologicos', label: 'Farmacológicos', num: 7 },
-  { key: 'habitos', label: 'Hábitos', num: 8 },
-  { key: 'familiares', label: 'Familiares', num: 9 },
-  { key: 'otros', label: 'Otros', num: 10 },
-];
+const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace(/\/$/, '');
 
 /** Sección G: Escala de Glasgow – opciones según Form 008 / estándar internacional */
 const GLASGOW_OCULAR = [
@@ -63,25 +51,6 @@ const REACCION_PUPILAR = [
   { value: 'NO_REACTIVAS', label: 'No reactivas' },
 ];
 
-
-/** Sección H – 15 ítems normativos del Examen Físico Regional (Form 008) */
-const EXAMEN_FISICO_REGIONAL_ITEMS = [
-  { key: 'estado_general', label: 'Estado general', num: 1 },
-  { key: 'piel_faneras', label: 'Piel y faneras', num: 2 },
-  { key: 'cabeza', label: 'Cabeza', num: 3 },
-  { key: 'ojos', label: 'Ojos', num: 4 },
-  { key: 'oidos', label: 'Oídos', num: 5 },
-  { key: 'nariz', label: 'Nariz', num: 6 },
-  { key: 'boca', label: 'Boca', num: 7 },
-  { key: 'orofaringe', label: 'Orofaringe', num: 8 },
-  { key: 'cuello', label: 'Cuello', num: 9 },
-  { key: 'axilas_mamas', label: 'Axilas y mamas', num: 10 },
-  { key: 'torax', label: 'Tórax', num: 11 },
-  { key: 'abdomen', label: 'Abdomen', num: 12 },
-  { key: 'columna_vertebral', label: 'Columna vertebral', num: 13 },
-  { key: 'miembros_superiores', label: 'Miembros superiores', num: 14 },
-  { key: 'miembros_inferiores', label: 'Miembros inferiores', num: 15 },
-];
 
 /** Sección K – 16 ítems normativos de Exámenes Complementarios (Form 008). Triggers: Lab (010) 1–5, Imagen (012) 8–14, Interconsulta (007) 15, Otros 16 */
 const ITEMS_SECCION_K = [
@@ -147,14 +116,17 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
     console.log("[AtencionEmergenciaForm] atencionData recibido:", atencionData);
     console.log("[AtencionEmergenciaForm] signosVitalesData recibido:", signosVitalesData);
 
-    if (!admisionData || !signosVitalesData) {
+    if (!admisionData) {
       setLoading(true);
       return;
     }
 
+    // Garantizar que signosVitalesData no sea null
+    const safeSignosVitales = signosVitalesData || {};
+
     // Inicialización de formData con atencionData si existe o datos por defecto si no
     if (atencionData && Object.keys(atencionData).length > 0 && Object.keys(formData).length === 0) { // Solo si atencionData NO está vacío y formData está vacío
-      existingAtencionIdRef.current = atencionData.id;
+      existingAtencionIdRef.current = parseInt(atencionData.id, 10); // Asegurar ID limpio
       
       fechaInicialRef.current = atencionData.fechaAtencion || format(new Date(), 'yyyy-MM-dd');
       horaInicialRef.current = atencionData.horaAtencion || format(new Date(), 'HH:mm');
@@ -189,7 +161,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
         };
       }
       const parsedEf = JSON.parse(atencionData.examenFisico || '{}');
-      const sv = signosVitalesData;
+      const sv = safeSignosVitales;
       const regionalDefaults = {};
       EXAMEN_FISICO_REGIONAL_ITEMS.forEach(({ key }) => {
         regionalDefaults[key] = parsedEf[key] ?? '';
@@ -231,6 +203,8 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
         embarazoParto: embarazoPartoNorm,
         examenesComplementarios: ecNorm,
         planTratamiento: JSON.parse(atencionData.planTratamiento || '[]'),
+        fecha_fallecimiento: atencionData.fecha_fallecimiento || null,
+        hora_fallecimiento: atencionData.hora_fallecimiento || null,
       }));
       lastSavedRef.current = JSON.stringify({
         ...atencionData,
@@ -240,11 +214,13 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
         embarazoParto: embarazoPartoNorm,
         examenesComplementarios: ecNorm,
         planTratamiento: JSON.parse(atencionData.planTratamiento || '[]'),
+        fecha_fallecimiento: atencionData.fecha_fallecimiento || null,
+        hora_fallecimiento: atencionData.hora_fallecimiento || null,
       }); // Inicializar referencia
     } else if (Object.keys(formData).length === 0) { // Si no hay atencionData y formData está vacío, inicializar con defaults
       const fechaActual = format(new Date(), 'yyyy-MM-dd');
       const horaActual = format(new Date(), 'HH:mm');
-      const sv = signosVitalesData;
+      const sv = safeSignosVitales;
       setFormData(prevData => ({
         ...prevData,
         fechaAtencion: fechaActual,
@@ -278,7 +254,9 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
         examenesComplementarios: DEFAULT_EXAMENES_K(),
         planTratamiento: [],
         observacionesPlanTratamiento: '',
-        condicionEgreso: '', referenciaEgreso: '', establecimientoEgreso: ''
+        condicionEgreso: '', referenciaEgreso: '', establecimientoEgreso: '',
+        fecha_fallecimiento: null,
+        hora_fallecimiento: null
       }));
       lastSavedRef.current = null; // No hay datos guardados aún
     }
@@ -383,24 +361,35 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
 
-    if (name === 'condicionEgreso' && value === 'FALLECIDO') {
-      setShowConfirmFallecidoModal(true); // Mostrar modal de confirmación
+    if (name === 'condicionEgreso') {
+      if (value === 'FALLECIDO') {
+        const now = new Date();
+        setFormData(prevData => ({
+          ...prevData,
+          condicionEgreso: value,
+          fecha_fallecimiento: format(now, 'yyyy-MM-dd'),
+          hora_fallecimiento: format(now, 'HH:mm')
+        }));
+        setShowConfirmFallecidoModal(true); // Mostrar modal de confirmación
+        return;
+      } else {
+        // Si cambia a otra condición, limpiamos los campos de fallecimiento
+        setFormData(prevData => ({
+          ...prevData,
+          condicionEgreso: value,
+          fecha_fallecimiento: null,
+          hora_fallecimiento: null
+        }));
+        return;
+      }
     }
 
     if (name === 'condicionLlegada') {
-      setFormData(prevData => {
-        const newData = {
-          ...prevData,
-          condicionLlegada: value
-        };
-        
-        if (value === 'ESTABLE' || value === 'INESTABLE') {
-          newData.fechaAtencion = fechaInicialRef.current || format(new Date(), 'yyyy-MM-dd');
-          newData.horaAtencion = horaInicialRef.current || format(new Date(), 'HH:mm');
-        }
-        
-        return newData;
-      });
+      // Regla de negocio: La hora de atención NO cambia al modificar condición de llegada
+      setFormData(prevData => ({
+        ...prevData,
+        condicionLlegada: value
+      }));
       return;
     }
 
@@ -458,15 +447,6 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
     });
   };
 
-  /** Marcar todo como Normal en Sección H: usa el mismo handleNestedChange que el clic individual. */
-  const handleMarcarTodoNormalExamenRegional = () => {
-    EXAMEN_FISICO_REGIONAL_ITEMS.forEach(({ key }) => {
-      handleNestedChange('examenFisico', key, '');
-      handleNestedChange('examenFisico', `${key}_normal`, true);
-    });
-    setExamenRegionalRevision(r => r + 1);
-  };
-
   const handleArrayChange = (section, index, field, value) => {
     setFormData(prevData => {
       const newArray = [...prevData[section]];
@@ -486,25 +466,6 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
     setFormData(prevData => ({
       ...prevData,
       [section]: prevData[section].filter((_, i) => i !== index)
-    }));
-  };
-
-  /** No aplica general para Sección E (Antecedentes) */
-  const setNoAplicaGeneralAntecedentes = (value) => {
-    setFormData(prev => ({
-      ...prev,
-      antecedentesPatologicos: { ...prev.antecedentesPatologicos, noAplicaGeneral: !!value }
-    }));
-  };
-
-  /** No aplica por campo en Sección E */
-  const setNoAplicaCampoAntecedente = (fieldKey, value) => {
-    setFormData(prev => ({
-      ...prev,
-      antecedentesPatologicos: {
-        ...prev.antecedentesPatologicos,
-        noAplica: { ...(prev.antecedentesPatologicos.noAplica || {}), [fieldKey]: !!value }
-      }
     }));
   };
 
@@ -582,6 +543,36 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
 
       const { diagnosticosPresuntivos, diagnosticosDefinitivos, ...dataToSaveForAtencion } = formData;
       
+      // Saneamiento de Fechas (Tarea A) - Verificación Estricta
+      Object.keys(dataToSaveForAtencion).forEach(key => {
+          const val = dataToSaveForAtencion[key];
+          if ((key.startsWith('fecha') || key === 'fum') && (val === 'Invalid date' || val === '' || val === undefined)) {
+              dataToSaveForAtencion[key] = null;
+          }
+      });
+
+      // Saneamiento Explícito para fechaEvento (Crítico para evitar Error 500)
+      if (dataToSaveForAtencion.fechaEvento === 'Invalid date' || dataToSaveForAtencion.fechaEvento === '' || dataToSaveForAtencion.fechaEvento === undefined) {
+          dataToSaveForAtencion.fechaEvento = null;
+      }
+
+      // Validación de fechaAtencion
+      if (dataToSaveForAtencion.fechaAtencion === 'Invalid date' || !dataToSaveForAtencion.fechaAtencion) {
+          dataToSaveForAtencion.fechaAtencion = format(new Date(), 'yyyy-MM-dd');
+      }
+
+      // Persistencia de Hora (Asegurar que no se sobrescriba con hora actual si ya existe)
+      if (!dataToSaveForAtencion.horaAtencion) {
+           // Tiempos: Mantener fija la hora de atención desde el inicio (fallback a horaInicialRef)
+           dataToSaveForAtencion.horaAtencion = horaInicialRef.current || format(new Date(), 'HH:mm');
+      }
+
+      // Asegurar que campos de fallecimiento solo se envíen si es FALLECIDO
+      if (dataToSaveForAtencion.condicionEgreso !== 'FALLECIDO') {
+        dataToSaveForAtencion.fecha_fallecimiento = null;
+        dataToSaveForAtencion.hora_fallecimiento = null;
+      }
+
       const dataToSend = {
         ...dataToSaveForAtencion,
         pacienteId: admisionData.pacienteId,
@@ -598,8 +589,12 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
       const finalEstadoFirma = atencionData?.estadoFirma === 'FINALIZADO_FIRMADO' ? 'FINALIZADO_FIRMADO' : 'PENDIENTE_FIRMA';
       const dataToSendWithEstado = { ...dataToSend, estadoFirma: finalEstadoFirma };
 
+      console.log('[AtencionEmergenciaForm] Payload Final:', dataToSendWithEstado);
+
       if (existingAtencionIdRef.current) {
-        await axios.put(`${API_BASE}/atencion-emergencia/${existingAtencionIdRef.current}`, dataToSendWithEstado, {
+        // Asegurar que el ID sea un entero limpio antes de usarlo en la URL
+        const idClean = parseInt(existingAtencionIdRef.current, 10);
+        await axios.put(`${API_BASE}/atencion-emergencia/${idClean}`, dataToSendWithEstado, {
           headers: { Authorization: `Bearer ${token}` }
         });
         alert('Atención de emergencia actualizada exitosamente y marcada como PENDIENTE DE FIRMA.');
@@ -673,7 +668,14 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
     } catch (err) {
       console.error('[AtencionEmergenciaForm] Error al guardar la atención de emergencia:', err.message);
       console.error('[AtencionEmergenciaForm] Stack trace:', err.stack);
-      setError('Error al guardar la atención de emergencia. Verifique los datos e intente de nuevo.');
+      if (err.response?.status === 500) {
+        const backendMsg = err.response?.data?.message || err.response?.data?.error || '';
+        setError(`Error del Servidor (500): ${backendMsg || 'No se pudo guardar la atención. Posibles causas: datos corruptos o problemas de conexión con la base de datos.'}`);
+      } else if (err.response?.status === 400) {
+        setError(`Error de Validación: ${err.response.data.message || 'Verifique los campos obligatorios.'}`);
+      } else {
+        setError('Error al guardar la atención de emergencia. Verifique los datos e intente de nuevo.');
+      }
     } finally {
       setLoading(false);
     }
@@ -934,62 +936,11 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
           )}
 
           {activeTab === 'antecedentes' && (
-            <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm" style={{ fontFamily: "'Inter', 'Roboto', sans-serif" }}>
-              <h2 className="text-xl font-semibold mb-2 text-gray-800">Sección E – Antecedentes Patológicos</h2>
-              <p className="text-sm text-gray-500 mb-4">Centro de Salud Chone – Formulario 008 (MSP)</p>
-              {/* No aplica general */}
-              <div className="mb-6 p-4 bg-gray-50 rounded-xl border border-gray-100">
-                <label className="flex items-center justify-between gap-4 cursor-pointer">
-                  <span className="text-sm font-medium text-gray-700">No aplica (todos los antecedentes)</span>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={!!(formData.antecedentesPatologicos?.noAplicaGeneral)}
-                      onChange={(e) => setNoAplicaGeneralAntecedentes(e.target.checked)}
-                      disabled={readOnly}
-                      className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm font-medium text-gray-600">No aplica</span>
-                  </div>
-                </label>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {CAMPOS_ANTECEDENTES.map(({ key, label, num }) => {
-                  const ap = formData.antecedentesPatologicos || {};
-                  const valor = ap[key] != null ? ap[key] : "";
-                  const noAplicaCampo = !!(ap.noAplica && ap.noAplica[key]);
-                  const rows = Math.max(2, 1 + (String(valor).split("\n").length || 0));
-                  return (
-                    <div key={key} className="border border-gray-100 rounded-xl p-4 bg-white hover:border-gray-200 transition-colors">
-                      <div className="flex items-center justify-between mb-2">
-                        <label htmlFor={`antecedentes-${key}`} className="text-sm font-semibold text-gray-800">
-                          {num}. {label}
-                        </label>
-                        <label className="inline-flex items-center gap-2 cursor-pointer shrink-0">
-                          <input
-                            type="checkbox"
-                            checked={noAplicaCampo}
-                            onChange={(e) => setNoAplicaCampoAntecedente(key, e.target.checked)}
-                            disabled={readOnly || !!ap.noAplicaGeneral}
-                            className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="text-xs font-medium text-gray-500">No aplica</span>
-                        </label>
-                      </div>
-                      <textarea
-                        id={`antecedentes-${key}`}
-                        value={valor}
-                        onChange={(e) => handleNestedChange("antecedentesPatologicos", key, e.target.value)}
-                        disabled={readOnly || noAplicaCampo || !!ap.noAplicaGeneral}
-                        placeholder={noAplicaCampo || ap.noAplicaGeneral ? "—" : `Describa antecedentes ${label.toLowerCase()}…`}
-                        rows={Math.min(6, rows)}
-                        className="w-full py-2 px-3 border border-gray-200 rounded-lg text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 resize-y disabled:bg-gray-50 disabled:text-gray-400 text-sm"
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            <AntecedentesPatologicos
+              formData={formData}
+              setFormData={setFormData}
+              readOnly={readOnly}
+            />
           )}
 
           {activeTab === 'enfermedadActual' && (
@@ -1066,25 +1017,26 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
               <h2 className="text-xl font-semibold text-gray-800 mb-4">Valoración Neurológica y Constantes</h2>
 
               {/* Constantes precargadas (cabecera): TA, FC, FR, Temp, SpO2, Peso, Talla, Perímetro Cefálico */}
-              {signosVitalesData && !signosVitalesData.sin_constantes_vitales && (
+              {(signosVitalesData || {}) && !(signosVitalesData || {}).sin_constantes_vitales && (
                 <div className="flex flex-wrap items-center gap-x-6 gap-y-1 border-b border-gray-100 pb-4 mb-4 text-sm">
-                  {signosVitalesData.presion_arterial != null && <span><span className="text-gray-500">TA:</span> <strong>{signosVitalesData.presion_arterial}</strong></span>}
-                  {signosVitalesData.frecuencia_cardiaca != null && <span><span className="text-gray-500">FC:</span> <strong>{signosVitalesData.frecuencia_cardiaca}</strong></span>}
-                  {signosVitalesData.frecuencia_respiratoria != null && <span><span className="text-gray-500">FR:</span> <strong>{signosVitalesData.frecuencia_respiratoria}</strong></span>}
-                  {signosVitalesData.temperatura != null && <span><span className="text-gray-500">Temp:</span> <strong>{signosVitalesData.temperatura}°</strong></span>}
-                  {signosVitalesData.saturacion_oxigeno != null && <span><span className="text-gray-500">SpO₂:</span> <strong>{signosVitalesData.saturacion_oxigeno}%</strong></span>}
-                  {signosVitalesData.peso != null && <span><span className="text-gray-500">Peso:</span> <strong>{signosVitalesData.peso} kg</strong></span>}
-                  {signosVitalesData.talla != null && <span><span className="text-gray-500">Talla:</span> <strong>{signosVitalesData.talla} cm</strong></span>}
-                  <span><span className="text-gray-500">Perím. cef.:</span> <strong>{esPediatrico && signosVitalesData.perimetro_cefalico != null ? `${signosVitalesData.perimetro_cefalico} cm` : 'N/A'}</strong></span>
+                  {(signosVitalesData || {}).presion_arterial != null && <span><span className="text-gray-500">TA:</span> <strong>{(signosVitalesData || {}).presion_arterial}</strong></span>}
+                  {(signosVitalesData || {}).frecuencia_cardiaca != null && <span><span className="text-gray-500">FC:</span> <strong>{(signosVitalesData || {}).frecuencia_cardiaca}</strong></span>}
+                  {(signosVitalesData || {}).frecuencia_respiratoria != null && <span><span className="text-gray-500">FR:</span> <strong>{(signosVitalesData || {}).frecuencia_respiratoria}</strong></span>}
+                  {(signosVitalesData || {}).temperatura != null && <span><span className="text-gray-500">Temp:</span> <strong>{(signosVitalesData || {}).temperatura}°</strong></span>}
+                  {(signosVitalesData || {}).saturacion_oxigeno != null && <span><span className="text-gray-500">SpO₂:</span> <strong>{(signosVitalesData || {}).saturacion_oxigeno}%</strong></span>}
+                  {(signosVitalesData || {}).peso != null && <span><span className="text-gray-500">Peso:</span> <strong>{(signosVitalesData || {}).peso} kg</strong></span>}
+                  {(signosVitalesData || {}).talla != null && <span><span className="text-gray-500">Talla:</span> <strong>{(signosVitalesData || {}).talla} cm</strong></span>}
+                  <span><span className="text-gray-500">Perím. cef.:</span> <strong>{esPediatrico && (signosVitalesData || {}).perimetro_cefalico != null ? `${(signosVitalesData || {}).perimetro_cefalico} cm` : 'N/A'}</strong></span>
                 </div>
               )}
 
               {/* Glasgow: Ocular (4), Verbal (5), Motora (6) – alertas ATLS */}
               {(() => {
-                const o = formData.examenFisico.glasgow_ocular;
-                const v = formData.examenFisico.glasgow_verbal;
-                const m = formData.examenFisico.glasgow_motora;
-                const total = (o != null && v != null && m != null) ? o + v + m : null;
+                const o = formData?.examenFisico?.glasgow_ocular || 0;
+                const v = formData?.examenFisico?.glasgow_verbal || 0;
+                const m = formData?.examenFisico?.glasgow_motora || 0;
+                // Se asegura que los tres valores sean positivos para sumar (evita cálculo con valores nulos o 0 por defecto)
+                const total = (o > 0 && v > 0 && m > 0) ? o + v + m : null;
                 const sev = glasgowSeveridad(total);
                 const totalClase = total == null ? 'text-gray-500' : total >= 9 && total < 15 ? 'text-amber-700 font-semibold' : total < 9 ? 'text-red-700 font-bold animate-pulse' : 'text-gray-800';
                 const bgBox = total != null && total >= 9 && total < 15 ? 'bg-amber-50/50 border-amber-200' : total != null && total < 9 ? 'bg-red-50/50 border-red-300 animate-pulse' : 'bg-white border-gray-200';
@@ -1095,7 +1047,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Ocular (4)</label>
                         <select
-                          value={formData.examenFisico.glasgow_ocular ?? ''}
+                          value={formData?.examenFisico?.glasgow_ocular ?? ''}
                           onChange={(e) => handleNestedChange('examenFisico', 'glasgow_ocular', e.target.value === '' ? null : parseInt(e.target.value, 10))}
                           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-500 bg-white"
                           disabled={readOnly}
@@ -1107,7 +1059,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Verbal (5)</label>
                         <select
-                          value={formData.examenFisico.glasgow_verbal ?? ''}
+                          value={formData?.examenFisico?.glasgow_verbal ?? ''}
                           onChange={(e) => handleNestedChange('examenFisico', 'glasgow_verbal', e.target.value === '' ? null : parseInt(e.target.value, 10))}
                           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-500 bg-white"
                           disabled={readOnly}
@@ -1119,7 +1071,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Motora (6)</label>
                         <select
-                          value={formData.examenFisico.glasgow_motora ?? ''}
+                          value={formData?.examenFisico?.glasgow_motora ?? ''}
                           onChange={(e) => handleNestedChange('examenFisico', 'glasgow_motora', e.target.value === '' ? null : parseInt(e.target.value, 10))}
                           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-500 bg-white"
                           disabled={readOnly}
@@ -1147,7 +1099,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Derecha</label>
                     <select
-                      value={formData.examenFisico.pupilas_derecha ?? ''}
+                      value={formData?.examenFisico?.pupilas_derecha ?? ''}
                       onChange={(e) => handleNestedChange('examenFisico', 'pupilas_derecha', e.target.value)}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-500"
                       disabled={readOnly}
@@ -1159,7 +1111,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Izquierda</label>
                     <select
-                      value={formData.examenFisico.pupilas_izquierda ?? ''}
+                      value={formData?.examenFisico?.pupilas_izquierda ?? ''}
                       onChange={(e) => handleNestedChange('examenFisico', 'pupilas_izquierda', e.target.value)}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-500"
                       disabled={readOnly}
@@ -1181,7 +1133,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                       type="number"
                       step="0.1"
                       min={0}
-                      value={formData.examenFisico.tiempo_llenado_capilar ?? ''}
+                      value={formData?.examenFisico?.tiempo_llenado_capilar ?? ''}
                       onChange={(e) => handleNestedChange('examenFisico', 'tiempo_llenado_capilar', e.target.value === '' ? '' : e.target.value)}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
                       placeholder="Opcional (disponibilidad de insumos)"
@@ -1195,14 +1147,14 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                       step="0.1"
                       min={20}
                       max={600}
-                      value={formData.examenFisico.glicemia_capilar ?? ''}
+                      value={formData?.examenFisico?.glicemia_capilar ?? ''}
                       onChange={(e) => handleNestedChange('examenFisico', 'glicemia_capilar', e.target.value === '' ? null : parseFloat(e.target.value))}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
                       placeholder="Opcional (disponibilidad de insumos)"
-                      disabled={readOnly || (signosVitalesData?.glicemia_capilar != null)}
-                      title={signosVitalesData?.glicemia_capilar != null ? 'Registrado por enfermería' : 'Opcional'}
+                      disabled={readOnly || ((signosVitalesData || {})?.glicemia_capilar != null)}
+                      title={(signosVitalesData || {})?.glicemia_capilar != null ? 'Registrado por enfermería' : 'Opcional'}
                     />
-                    {signosVitalesData?.glicemia_capilar != null && <span className="text-xs text-gray-500">(desde enfermería)</span>}
+                    {(signosVitalesData || {})?.glicemia_capilar != null && <span className="text-xs text-gray-500">(desde enfermería)</span>}
                   </div>
                 </div>
               </div>
@@ -1211,87 +1163,11 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
           })()}
 
           {activeTab === 'examenFisico' && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-              <div className="grid grid-cols-1 lg:grid-cols-[60%_1fr] gap-6">
-                {/* Sección H: Examen Físico Regional (Sistemático) — 60% */}
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-semibold text-gray-800">H. Examen Físico Regional (Sistemático)</h2>
-                    <button
-                      type="button"
-                      onClick={handleMarcarTodoNormalExamenRegional}
-                      disabled={readOnly}
-                      className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Marcar todo como Normal
-                    </button>
-                  </div>
-                  <div key={`examen-regional-${examenRegionalRevision}`} className="space-y-3 max-h-[calc(100vh-20rem)] overflow-y-auto pr-1">
-                    {EXAMEN_FISICO_REGIONAL_ITEMS.map(({ key, label, num }) => {
-                      const ef = formData.examenFisico || {};
-                      const esNormal = ef[`${key}_normal`] !== false;
-                      return (
-                        <div key={key} className="border-b border-gray-100 pb-3 last:border-0">
-                          <label className={`flex items-center gap-2 cursor-pointer ${esNormal ? 'text-gray-500' : 'text-gray-800'}`}>
-                            <input
-                              type="checkbox"
-                              checked={esNormal}
-                              onChange={(e) => handleNestedChange('examenFisico', `${key}_normal`, e.target.checked)}
-                              disabled={readOnly}
-                              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                              title={esNormal ? 'Normal (marcado)' : 'Marcar como Normal para ocultar hallazgo'}
-                            />
-                            <span className="text-sm font-medium">{num}. {label}</span>
-                            {esNormal && <span className="text-xs text-gray-400">Normal</span>}
-                            {!esNormal && <span className="text-xs text-amber-600">Patológico — describa hallazgo abajo</span>}
-                          </label>
-                          {!esNormal && (
-                            <div className="mt-2 ml-6">
-                              <textarea
-                                id={`examenFisico-${key}`}
-                                value={ef[key] || ''}
-                                onChange={(e) => handleNestedChange('examenFisico', key, e.target.value)}
-                                disabled={readOnly}
-                                placeholder="Descripción del hallazgo..."
-                                className="w-full text-sm border border-gray-200 rounded-md py-1.5 px-2 text-gray-700 focus:ring-1 focus:ring-amber-400 focus:border-amber-400"
-                                rows={2}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Sección I: Examen de Trauma / Crítico — 40% */}
-                <div>
-                  <h2 className="text-lg font-semibold text-gray-800 mb-3">I. Examen Físico de Trauma / Crítico</h2>
-                  {(() => {
-                    const d = formData.tipoAccidenteViolenciaIntoxicacion || {};
-                    const seleccion = Array.isArray(d.seleccion) ? d.seleccion : [];
-                    const hayEventoTraumatico = seleccion.length > 0;
-                    return (
-                      <div className={hayEventoTraumatico ? 'rounded-lg border-2 border-amber-300 bg-amber-50/30 p-3' : ''}>
-                        <textarea
-                          id="examenFisicoTraumaCritico"
-                          name="examenFisicoTraumaCritico"
-                          value={formData.examenFisicoTraumaCritico || ''}
-                          onChange={handleChange}
-                          disabled={readOnly}
-                          placeholder="Describa hallazgos según esquema ABCDE (Vía aérea, Respiración, Circulación, Déficit neurológico, Exposición). ATLS / estándar internacional."
-                          className="w-full min-h-[280px] text-sm border border-gray-200 rounded-md py-2 px-3 text-gray-700 focus:ring-1 focus:ring-blue-400 focus:border-blue-400 disabled:bg-gray-50 disabled:cursor-not-allowed"
-                          rows={12}
-                        />
-                        {hayEventoTraumatico && (
-                          <p className="mt-2 text-xs text-amber-700">Priorice el llenado de esta sección por evento traumático registrado.</p>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </div>
-              </div>
-            </div>
+            <ExamenFisico
+              formData={formData}
+              setFormData={setFormData}
+              readOnly={readOnly}
+            />
           )}
 
           {activeTab === 'embarazoParto' && (() => {
@@ -1307,14 +1183,14 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
             const semanasAuto = fumVal ? differenceInWeeks(new Date(), parseISO(fumVal)) : null;
             const semanasGestacion = ep.semanasGestacion != null ? ep.semanasGestacion : semanasAuto;
             const deshabilitarSeccion = readOnly || esMasculino;
-            const sv = signosVitalesData;
+            const sv = signosVitalesData || {};
             const paRaw = sv?.presion_arterial;
             const pa = paRaw != null ? (typeof paRaw === 'number' ? paRaw : (() => { const s = String(paRaw).split('/')[0]; const n = parseFloat(s); return isNaN(n) ? null : n; })()) : null;
             const fc = sv?.frecuencia_cardiaca != null ? Number(sv.frecuencia_cardiaca) : null;
             const fr = sv?.frecuencia_respiratoria != null ? Number(sv.frecuencia_respiratoria) : null;
             const temp = sv?.temperatura != null ? Number(sv.temperatura) : null;
             const spo2 = sv?.saturacion_oxigeno != null ? Number(sv.saturacion_oxigeno) : null;
-            const glasgow = (formData.examenFisico?.glasgow_ocular ?? null) != null && (formData.examenFisico?.glasgow_verbal ?? null) != null && (formData.examenFisico?.glasgow_motora ?? null) != null
+            const glasgow = (formData?.examenFisico?.glasgow_ocular != null && formData?.examenFisico?.glasgow_verbal != null && formData?.examenFisico?.glasgow_motora != null)
               ? (formData.examenFisico.glasgow_ocular || 0) + (formData.examenFisico.glasgow_verbal || 0) + (formData.examenFisico.glasgow_motora || 0)
               : null;
             const puntajeMama = embarazoVigente ? [
@@ -1851,10 +1727,44 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                   <option value="ALTA_DEFINITIVA">Alta definitiva</option>
                   <option value="CONSULTA_EXTERNA">Consulta externa</option>
                   <option value="OBSERVACION_EMERGENCIA">Observación de emergencia</option>
+                  <option value="REFERIDO">Referido</option>
                 </select>
               </div>
 
-              {(formData.condicionEgreso === 'HOSPITALIZACION' || formData.condicionEgreso === 'CONSULTA_EXTERNA') && (
+              {formData.condicionEgreso === 'FALLECIDO' && (
+                <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-red-50 border border-red-100 rounded-lg animate-fade-in">
+                  <div>
+                    <label htmlFor="fecha_fallecimiento" className="block text-gray-700 text-sm font-bold mb-2">
+                      Fecha de Fallecimiento: <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      id="fecha_fallecimiento"
+                      name="fecha_fallecimiento"
+                      value={formData.fecha_fallecimiento || ''}
+                      onChange={handleChange}
+                      required={formData.condicionEgreso === 'FALLECIDO'}
+                      className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="hora_fallecimiento" className="block text-gray-700 text-sm font-bold mb-2">
+                      Hora de Fallecimiento: <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="time"
+                      id="hora_fallecimiento"
+                      name="hora_fallecimiento"
+                      value={formData.hora_fallecimiento || ''}
+                      onChange={handleChange}
+                      required={formData.condicionEgreso === 'FALLECIDO'}
+                      className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {(formData.condicionEgreso === 'HOSPITALIZACION' || formData.condicionEgreso === 'CONSULTA_EXTERNA' || formData.condicionEgreso === 'REFERIDO') && (
                 <div className="mb-4">
                   <label htmlFor="referenciaEgreso" className="block text-gray-700 text-sm font-bold mb-2">
                     Referencia a: <span className="text-red-500">*</span>
@@ -1919,7 +1829,12 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
             setShowConfirmFallecidoModal(false);
           }}
           onCancel={() => {
-            setFormData(prev => ({ ...prev, condicionEgreso: '' }));
+            setFormData(prev => ({
+              ...prev,
+              condicionEgreso: '',
+              fecha_fallecimiento: null,
+              hora_fallecimiento: null
+            }));
             setShowConfirmFallecidoModal(false);
           }}
         />

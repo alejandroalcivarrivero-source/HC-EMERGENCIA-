@@ -12,21 +12,29 @@ exports.getAllCIE10 = async (req, res) => {
 };
 
 exports.searchCIE10 = async (req, res) => {
-  const { codigo, descripcion } = req.query;
+  const { codigo, descripcion, query } = req.query;
   let whereClause = {};
 
-  if (!codigo && !descripcion) {
+  // Si no se envía ningún parámetro de búsqueda, devolver array vacío
+  if (!codigo && !descripcion && !query) {
     return res.status(200).json([]);
   }
 
   const conditions = [];
 
-  if (codigo) {
-    conditions.push({ codigo: { [Op.like]: `%${String(codigo).trim()}%` } });
-  }
-
-  if (descripcion) {
-    conditions.push({ descripcion: { [Op.like]: `%${String(descripcion).trim()}%` } });
+  // Búsqueda genérica (input único para código O descripción)
+  if (query) {
+    const searchTerm = String(query).trim();
+    conditions.push({ codigo: { [Op.like]: `%${searchTerm}%` } });
+    conditions.push({ descripcion: { [Op.like]: `%${searchTerm}%` } });
+  } else {
+    // Búsqueda específica por campos (retrocompatibilidad)
+    if (codigo) {
+      conditions.push({ codigo: { [Op.like]: `%${String(codigo).trim()}%` } });
+    }
+    if (descripcion) {
+      conditions.push({ descripcion: { [Op.like]: `%${String(descripcion).trim()}%` } });
+    }
   }
 
   if (conditions.length === 0) {

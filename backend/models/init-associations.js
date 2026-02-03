@@ -17,6 +17,7 @@ const Rol = require('./rol'); // Importar el modelo Rol
 const RecetaMedica = require('./recetaMedica'); // Nuevo import
 const OrdenExamen = require('./ordenExamen'); // Nuevo import
 const OrdenImagen = require('./ordenImagen'); // Nuevo import
+const Referencia = require('./referencia'); // Nuevo import
 const FormaLlegada = require('./cat_formas_llegada');
 const FuenteInformacion = require('./cat_fuentes_informacion'); // Añadir esta línea
 const CatTiposIdentificacion = require('./cat_tipos_identificacion'); // Cambiado el nombre del import
@@ -39,7 +40,7 @@ const PuebloKichwa = require('./cat_pueblos_kichwa');
 const Parentesco = require('./cat_parentescos');
 const CumplimientoProcedimientos = require('./cumplimientoProcedimientos'); // Nuevo import
 const CatProcedimientosEmergencia = require('./cat_procedimientos_emergencia'); // Nuevo import
-const DetalleDiagnosticos = require('./detalleDiagnosticos'); // Nuevo import
+const DetalleDiagnostico = require('./DetalleDiagnostico'); // Nuevo import
 const CatCIE10 = require('./catCie10'); // Nuevo import
 const LogReasignacionesMedicas = require('./logReasignacionesMedicas'); // Nuevo import
 
@@ -127,11 +128,11 @@ function initAssociations() {
   AtencionEmergencia.belongsTo(Usuario, { foreignKey: 'usuarioResponsableId', as: 'UsuarioResponsable' });
   Admision.hasOne(AtencionEmergencia, { foreignKey: 'admisionId', as: 'AtencionEmergencia' }); // Una admisión puede tener una atención de emergencia
 
-  // Asociaciones para DetalleDiagnosticos
-  DetalleDiagnosticos.belongsTo(AtencionEmergencia, { foreignKey: 'atencionEmergenciaId', as: 'AtencionEmergencia' });
-  DetalleDiagnosticos.belongsTo(CatCIE10, { foreignKey: 'codigoCIE10', targetKey: 'codigo', as: 'CIE10' });
-  DetalleDiagnosticos.belongsTo(DetalleDiagnosticos, { foreignKey: 'padre_id', as: 'CausaExternaPadre' }); // Autorelación para causa externa
-  AtencionEmergencia.hasMany(DetalleDiagnosticos, { foreignKey: 'atencionEmergenciaId', as: 'DetalleDiagnosticos' });
+  // Asociaciones para DetalleDiagnostico
+  DetalleDiagnostico.belongsTo(AtencionEmergencia, { foreignKey: 'atencionEmergenciaId', as: 'AtencionEmergencia' });
+  DetalleDiagnostico.belongsTo(CatCIE10, { foreignKey: 'codigoCIE10', targetKey: 'codigo', as: 'CIE10' });
+  // DetalleDiagnostico.belongsTo(DetalleDiagnostico, { foreignKey: 'padreId', as: 'CausaExternaPadre' }); // COMENTADO: Ya definido en el modelo DetalleDiagnostico.js
+  AtencionEmergencia.hasMany(DetalleDiagnostico, { foreignKey: 'atencionEmergenciaId', as: 'DetalleDiagnosticos' });
 
   // Asociaciones para LogReasignacionesMedicas
   LogReasignacionesMedicas.belongsTo(AtencionEmergencia, { foreignKey: 'atencionEmergenciaId', as: 'AtencionEmergencia' });
@@ -171,6 +172,12 @@ function initAssociations() {
    OrdenImagen.belongsTo(Usuario, { foreignKey: 'usuarioId', as: 'Usuario' });
    Admision.hasMany(OrdenImagen, { foreignKey: 'admisionId', as: 'OrdenesImagen' });
    console.log('OrdenImagen:', OrdenImagen.associations);
+
+   // Asociaciones para Referencia (053)
+   Referencia.belongsTo(Admision, { foreignKey: 'admisionId', as: 'AdmisionReferencia' });
+   Referencia.belongsTo(Usuario, { foreignKey: 'usuarioId', as: 'Usuario' });
+   Admision.hasMany(Referencia, { foreignKey: 'admisionId', as: 'Referencias053' });
+   console.log('Referencia:', Referencia.associations);
 }
 
 module.exports = initAssociations;

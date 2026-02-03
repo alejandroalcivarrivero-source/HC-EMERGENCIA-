@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
-import { Trash2, Edit2, Save, AlertTriangle, FileText, X } from 'lucide-react';
+import { Trash2, Save, AlertTriangle, FileText, X } from 'lucide-react';
+import AutoCompleteInput from './AutoCompleteInput';
 
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace(/\/$/, '');
 const MAX_PRESUNTIVOS = 3;
 const MAX_DEFINITIVOS = 3;
 
+// Funciones auxiliares
 const esCodigoZ = (codigo) => /^Z/i.test(String(codigo || '').trim());
 const esCodigoST = (codigo) => /^[ST]/i.test(String(codigo || '').trim());
 const esCausaExternaRango = (codigo) => /^[VWXY]\d{2}/i.test(String(codigo || '').trim().replace(/\s/g, ''));
@@ -15,36 +17,50 @@ const DiagnosticosCIE10 = ({ atencionId, readOnly = false, formDataMain }) => {
   const [loading, setLoading] = useState(true);
   const [showAgregar, setShowAgregar] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  
+  // Búsqueda CIE-10 Principal
   const [cie10Options, setCie10Options] = useState([]);
-  const [searchCie10, setSearchCie10] = useState('');
-  const [searchDescripcion, setSearchDescripcion] = useState(''); // Nuevo estado para búsqueda por descripción
+  const [searchTerm, setSearchTerm] = useState('');
   const [searchingCie10, setSearchingCie10] = useState(false);
+  
+  // Búsqueda Causa Externa
+  const [externalCauseSearchTerm, setExternalCauseSearchTerm] = useState('');
+  const [cie10OptionsCausaExterna, setCie10OptionsCausaExterna] = useState([]);
+  const [searchingCausaExterna, setSearchingCausaExterna] = useState(false);
+
+  // Estado del Formulario
   const [formData, setFormData] = useState({
     codigoCIE10: '',
     descripcionCie: '',
     descripcion: '',
-    tipoDiagnostico: 'PRESUNTIVO',
-    condicion: 'Presuntivo',
+    tipoDiagnostico: 'PRESUNTIVO', // PRESUNTIVO, DEFINITIVO, NO APLICA
+    condicion: 'Presuntivo', // Presuntivo, Definitivo Inicial, Definitivo Inicial por Laboratorio, NO APLICA
     esCausaExterna: false
   });
+
   const [mostrarSeccionCausaExterna, setMostrarSeccionCausaExterna] = useState(false);
   const [formDataCausaExterna, setFormDataCausaExterna] = useState({
     codigoCIE10: '',
     descripcion: '',
-    tipoDiagnostico: 'PRESUNTIVO'
+    tipoDiagnostico: 'PRESUNTIVO',
+    condicion: 'Presuntivo'
   });
-  const [searchCausaExterna, setSearchCausaExterna] = useState('');
-  const [cie10OptionsCausaExterna, setCie10OptionsCausaExterna] = useState([]);
-  const [searchingCausaExterna, setSearchingCausaExterna] = useState(false);
+
   const debounceRef = useRef(null);
   const debounceCausaRef = useRef(null);
 
+  // Cargar diagnósticos al montar
   const cargarDiagnosticos = useCallback(async () => {
-    if (!atencionId) return;
+    // Asegurar ID limpio (entero)
+    const idClean = parseInt(atencionId, 10);
+    if (!idClean) return;
+
     try {
       setLoading(true);
       const token = localStorage.getItem('token');
-      const { data } = await axios.get(`${API_BASE}/diagnosticos/atencion/${atencionId}`, {
+      // Limpieza de URL: Asegurar que no se envíen IDs duplicados o mal formados
+      const url = `${API_BASE}/diagnosticos/atencion/${idClean}`;
+      const { data } = await axios.get(url, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setDiagnosticos(Array.isArray(data) ? data : []);
@@ -60,6 +76,7 @@ const DiagnosticosCIE10 = ({ atencionId, readOnly = false, formDataMain }) => {
     cargarDiagnosticos();
   }, [cargarDiagnosticos]);
 
+  // Buscar CIE-10
   const buscarCIE10 = useCallback(async (termino) => {
     const t = String(termino || '').trim();
     if (t.length < 2) {
@@ -72,17 +89,17 @@ const DiagnosticosCIE10 = ({ atencionId, readOnly = false, formDataMain }) => {
         setSearchingCie10(true);
         const token = localStorage.getItem('token');
         const { data } = await axios.get(
-          `${API_BASE}/cat-cie10/search?query=${encodeURIComponent(t)}`,
+          `${API_BASE}/cat-cie10/buscar?query=${encodeURIComponent(t)}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
         let results = Array.isArray(data) ? data : [];
         
-        // Sincronización con Evento Traumático (Si No Aplica, filtrar S y T)
-        if (formDataMain?.tipoAccidenteViolenciaIntoxicacion?.noAplica) {
-            results = results.filter(item => !esCodigoST(item.codigo));
-        }
+        const formattedResults = results.slice(0, 15).map(item => ({
+          ...item,
+          labelCompleto: `${item.codigo} - ${item.descripcion}`
+        }));
 
-        setCie10Options(results.slice(0, 15));
+        setCie10Options(formattedResults);
       } catch (err) {
         console.error('Error al buscar CIE-10:', err);
         setCie10Options([]);
@@ -92,6 +109,7 @@ const DiagnosticosCIE10 = ({ atencionId, readOnly = false, formDataMain }) => {
     }, 280);
   }, [formDataMain]);
 
+  // Buscar Causa Externa (Solo V, W, X, Y)
   const buscarCausaExterna = useCallback(async (termino) => {
     const t = String(termino || '').trim();
     if (t.length < 2) {
@@ -104,11 +122,18 @@ const DiagnosticosCIE10 = ({ atencionId, readOnly = false, formDataMain }) => {
         setSearchingCausaExterna(true);
         const token = localStorage.getItem('token');
         const { data } = await axios.get(
-          `${API_BASE}/cat-cie10/search?query=${encodeURIComponent(t)}`,
+          `${API_BASE}/cat-cie10/buscar?query=${encodeURIComponent(t)}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
         const lista = Array.isArray(data) ? data : [];
-        setCie10OptionsCausaExterna(lista.filter(c => esCausaExternaRango((c.codigo || '').trim())).slice(0, 15));
+        const filtrados = lista.filter(c => esCausaExternaRango((c.codigo || '').trim()));
+        
+        const formattedResults = filtrados.slice(0, 15).map(item => ({
+          ...item,
+          labelCompleto: `${item.codigo} - ${item.descripcion}`
+        }));
+        
+        setCie10OptionsCausaExterna(formattedResults);
       } catch (err) {
         console.error('Error al buscar causa externa:', err);
         setCie10OptionsCausaExterna([]);
@@ -118,153 +143,251 @@ const DiagnosticosCIE10 = ({ atencionId, readOnly = false, formDataMain }) => {
     }, 280);
   }, []);
 
-  // Efecto para búsqueda por código
+  // Limpieza al cerrar
   useEffect(() => {
-    if (showAgregar && searchCie10 && searchCie10 !== formData.codigoCIE10) {
-      buscarCIE10(searchCie10);
+    if (!showAgregar) {
+        setSearchTerm('');
+        setCie10Options([]);
+        setExternalCauseSearchTerm('');
+        setCie10OptionsCausaExterna([]);
+        setFormData({
+            codigoCIE10: '',
+            descripcionCie: '',
+            descripcion: '',
+            tipoDiagnostico: 'PRESUNTIVO',
+            condicion: 'Presuntivo',
+            esCausaExterna: false
+        });
     }
-    // Si limpiamos el searchCie10, limpiamos opciones
-    if (!searchCie10 && !searchDescripcion) setCie10Options([]);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [showAgregar, searchCie10, buscarCIE10, formData.codigoCIE10, searchDescripcion]);
+  }, [showAgregar]);
 
-  // Efecto para búsqueda por descripción
-  useEffect(() => {
-    if (showAgregar && searchDescripcion && searchDescripcion !== formData.descripcionCie) {
-      buscarCIE10(searchDescripcion);
-    }
-    if (!searchDescripcion && !searchCie10) setCie10Options([]);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [showAgregar, searchDescripcion, buscarCIE10, formData.descripcionCie, searchCie10]);
-
-  useEffect(() => {
-    if (showAgregar && mostrarSeccionCausaExterna) buscarCausaExterna(searchCausaExterna);
-    return () => { if (debounceCausaRef.current) clearTimeout(debounceCausaRef.current); };
-  }, [showAgregar, mostrarSeccionCausaExterna, searchCausaExterna, buscarCausaExterna]);
-
-  // Detección en tiempo real: Z → Permitir elección; S/T → faltaCausaExterna y campo obligatorio causa externa
+  // Sincronización automática (Z Code, S/T)
   useEffect(() => {
     const cod = String(formData.codigoCIE10 || '').trim().toUpperCase();
-    if (!cod) {
-      setMostrarSeccionCausaExterna(false);
+    
+    // Regla 1: Códigos Z -> NO APLICA / ESTADISTICO (Automatización)
+    if (esCodigoZ(cod)) {
+        // Bloqueo automático del selector en 'No Aplica'
+        setFormData(prev => ({
+            ...prev,
+            tipoDiagnostico: 'NO APLICA',
+            condicion: 'NO APLICA'
+        }));
+        setMostrarSeccionCausaExterna(false);
+        return;
+    }
+
+    // Regla 2: Códigos S/T -> Obligatorio Causa Externa (Causa Externa Lógica)
+    if (esCodigoST(cod)) {
+      setMostrarSeccionCausaExterna(true);
+      // Restaurar si estaba en NO APLICA
+      if (formData.condicion === 'NO APLICA') {
+          setFormData(prev => ({ ...prev, tipoDiagnostico: 'PRESUNTIVO', condicion: 'Presuntivo' }));
+      }
       return;
     }
     
-    if (cod.startsWith('S') || cod.startsWith('T')) {
-      setMostrarSeccionCausaExterna(true);
-      return;
-    }
+    // Regla 3: Otros códigos -> Resetear Causa Externa y condiciones si venía de Z
     setMostrarSeccionCausaExterna(false);
+    setFormDataCausaExterna({ codigoCIE10: '', descripcion: '', tipoDiagnostico: 'PRESUNTIVO' });
+    setExternalCauseSearchTerm('');
+    
+    if (formData.condicion === 'NO APLICA') {
+         setFormData(prev => ({ ...prev, tipoDiagnostico: 'PRESUNTIVO', condicion: 'Presuntivo' }));
+    }
+
   }, [formData.codigoCIE10]);
 
-  // Falta causa externa: trauma S/T seleccionado en el formulario sin haber elegido aún un código V/W/X/Y
-  const faltaCausaExterna = mostrarSeccionCausaExterna && !(formDataCausaExterna.codigoCIE10 || '').trim();
-
-  // Solo morbilidad (no Z, no causa externa V-Y ni hijos) ocupa slots L/M
-  const presuntivos = diagnosticos.filter(d => {
-    const cod = d.codigoCIE10 || d.CIE10?.codigo;
-    return d.tipoDiagnostico === 'PRESUNTIVO' && !esCodigoZ(cod) && !esCausaExternaRango(cod) && !d.padreId;
-  });
-  const definitivos = diagnosticos.filter(d => {
-    const cod = d.codigoCIE10 || d.CIE10?.codigo;
-    return d.tipoDiagnostico === 'DEFINITIVO' && !esCodigoZ(cod) && !esCausaExternaRango(cod) && !d.padreId;
-  });
-  const estadisticos = diagnosticos.filter(d => esCodigoZ(d.codigoCIE10 || d.CIE10?.codigo) || d.tipoDiagnostico === 'ESTADISTICO' || d.tipoDiagnostico === 'NO APLICA');
-  const hayST = diagnosticos.some(d => esCodigoST(d.codigoCIE10 || d.CIE10?.codigo));
-  const tieneCausaExterna = diagnosticos.some(d => esCausaExternaRango(d.codigoCIE10 || d.CIE10?.codigo));
-
+  // Manejadores de Selección
   const handleSelectCIE10 = (cie10) => {
     const cod = (cie10.codigo || '').trim();
-    const desc = cie10.descripcion || '';
-    // No forzar tipo NO APLICA para Z, mantener el seleccionado o default
     setFormData(prev => ({
       ...prev,
       codigoCIE10: cod,
-      descripcionCie: desc,
-      esCausaExterna: esCausaExternaRango(cod) ? prev.esCausaExterna : false
+      descripcionCie: cie10.descripcion || '',
     }));
     setCie10Options([]);
-    setSearchCie10(cod);
-    setSearchDescripcion(desc); // Actualizar también el campo de descripción
+    setSearchTerm(`${cod} - ${cie10.descripcion}`);
   };
 
-  const handleAgregarDiagnostico = async () => {
-    const cod = (formData.codigoCIE10 || '').trim();
-    const tipo = formData.tipoDiagnostico;
+  const handleSelectCausaExterna = (cie10) => {
+    const cod = (cie10.codigo || '').trim();
+    setFormDataCausaExterna(prev => ({
+        ...prev,
+        codigoCIE10: cod,
+        descripcion: cie10.descripcion || ''
+    }));
+    setCie10OptionsCausaExterna([]);
+    setExternalCauseSearchTerm(`${cod} - ${cie10.descripcion}`);
+  };
 
-    // Validación MSP 008: Códigos S y T vs Evento Traumático
-    if (esCodigoST(cod)) {
-        if (formDataMain?.tipoAccidenteViolenciaIntoxicacion?.noAplica) {
-            alert('Para este diagnóstico (Trauma/Lesión S o T) es obligatorio llenar la sección de Evento Traumático. Por favor, desmarque "No Aplica" en la pestaña "Evento Traumático" y complete los datos.');
-            return;
+  // Manejador Cambio de Condición (Sincronización con Tipo)
+  const handleCondicionChange = (e) => {
+      const val = e.target.value;
+      let nuevoTipo = 'PRESUNTIVO'; // Valor por defecto seguro
+      
+      if (val === 'Definitivo Inicial' || val === 'Definitivo Inicial por Laboratorio') {
+          nuevoTipo = 'DEFINITIVO';
+      } else if (val === 'NO APLICA') {
+          nuevoTipo = 'NO APLICA';
+      } else if (val === 'Presuntivo') {
+          nuevoTipo = 'PRESUNTIVO';
+      }
+      
+      setFormData(prev => ({
+          ...prev,
+          condicion: val,
+          tipoDiagnostico: nuevoTipo
+      }));
+
+      // Sincronizar también la Causa Externa si está visible
+      if (mostrarSeccionCausaExterna) {
+          setFormDataCausaExterna(prev => ({
+              ...prev,
+              condicion: val,
+              tipoDiagnostico: nuevoTipo
+          }));
+      }
+  };
+
+  // Agregar Diagnóstico
+  const handleAgregarDiagnostico = async () => {
+    // 1. Validaciones Críticas
+    if (!formData.codigoCIE10) {
+        alert("Error: Debe seleccionar un diagnóstico válido.");
+        return;
+    }
+    // Validación estricta de tipoDiagnostico
+    if (!formData.tipoDiagnostico || formData.tipoDiagnostico === 'null' || !formData.condicion) {
+        // Intentar recuperar valores por defecto si es posible
+        if (!formData.tipoDiagnostico && formData.condicion) {
+            // Si hay condición, deducir tipo
+            const tipoDeducido = (formData.condicion === 'Definitivo Inicial' || formData.condicion === 'Definitivo Inicial por Laboratorio')
+                ? 'DEFINITIVO'
+                : (formData.condicion === 'NO APLICA' ? 'NO APLICA' : 'PRESUNTIVO');
+             setFormData(prev => ({ ...prev, tipoDiagnostico: tipoDeducido }));
+        } else {
+             alert("Error de Validación: El tipo o condición de diagnóstico no pueden estar vacíos. Seleccione una condición válida.");
+             return;
         }
     }
 
+    const cod = formData.codigoCIE10.trim();
+    
+    // Asegurar lógica de Tipos y Códigos Z (CRÍTICO para evitar notNull Violation)
+    let tipo = formData.tipoDiagnostico;
+    let condicionFinal = formData.condicion;
+
+    // REGLA ABSOLUTA: Si es código Z -> NO APLICA
+    if (esCodigoZ(cod)) {
+        tipo = 'NO APLICA';
+        condicionFinal = 'NO APLICA';
+    } else {
+        // Lógica de fallback si no es Z pero tipo está vacío
+        if (!tipo || tipo === 'null') {
+            if (condicionFinal === 'NO APLICA') {
+                tipo = 'NO APLICA';
+            } else if (condicionFinal && (condicionFinal.includes('Definitivo') || condicionFinal === 'DEFINITIVO')) {
+                tipo = 'DEFINITIVO';
+            } else {
+                tipo = 'PRESUNTIVO';
+                if (!condicionFinal) condicionFinal = 'Presuntivo';
+            }
+        }
+    }
+
+    const faltaCausaExterna = mostrarSeccionCausaExterna && !formDataCausaExterna.codigoCIE10;
+
+    // Validación S/T y Evento Traumático
+    if (esCodigoST(cod) && formDataMain?.tipoAccidenteViolenciaIntoxicacion?.noAplica) {
+        alert('Error Normativo: Para códigos de Trauma (S/T), la sección "Evento Traumático" es obligatoria.');
+        return;
+    }
+
+    // Validación S/T y Causa Externa requerida
     if (faltaCausaExterna) {
-      alert('Trauma (S o T): debe seleccionar la Causa Externa (código V, W, X o Y) obligatoria antes de agregar.');
+      alert('Requisito CIE-10: Los códigos S y T requieren obligatoriamente un segundo diagnóstico de Causa Externa (V, W, X, Y).');
       return;
     }
-    if (tipo === 'PRESUNTIVO' && presuntivos.length >= MAX_PRESUNTIVOS) {
-      alert(`Solo se permiten hasta ${MAX_PRESUNTIVOS} diagnósticos Presuntivos (L) en el Formulario 008.`);
+    
+    // Validación de Límites
+    const presuntivosCount = diagnosticos.filter(d => d.tipoDiagnostico === 'PRESUNTIVO' && !esCodigoZ(d.codigoCIE10 || d.CIE10?.codigo)).length;
+    const definitivosCount = diagnosticos.filter(d => d.tipoDiagnostico === 'DEFINITIVO' && !esCodigoZ(d.codigoCIE10 || d.CIE10?.codigo)).length;
+
+    if (tipo === 'PRESUNTIVO' && presuntivosCount >= MAX_PRESUNTIVOS) {
+      alert(`Límite Alcanzado: Máximo ${MAX_PRESUNTIVOS} diagnósticos Presuntivos (L).`);
       return;
     }
-    if (tipo === 'DEFINITIVO' && definitivos.length >= MAX_DEFINITIVOS) {
-      alert(`Solo se permiten hasta ${MAX_DEFINITIVOS} diagnósticos Definitivos (M) en el Formulario 008.`);
+    if (tipo === 'DEFINITIVO' && definitivosCount >= MAX_DEFINITIVOS) {
+      alert(`Límite Alcanzado: Máximo ${MAX_DEFINITIVOS} diagnósticos Definitivos (M).`);
       return;
     }
+
+    // ID Limpio y Validaciones Finales de Integridad
+    const idClean = parseInt(atencionId, 10);
+
+    if (!idClean || isNaN(idClean)) {
+        alert("Atención no guardada: Para agregar diagnósticos, primero debe existir una atención guardada.");
+        return;
+    }
+
+    // Asegurar que los campos críticos NO sean null antes de enviar
+    if (!cod || !tipo) {
+        console.error("Error de Integridad: Intentando enviar diagnóstico con campos nulos.", { cod, tipo });
+        alert("Error: Faltan datos obligatorios del diagnóstico (Código o Tipo).");
+        return;
+    }
+
     try {
       const token = localStorage.getItem('token');
-      const { data: creado } = await axios.post(
-        `${API_BASE}/diagnosticos/atencion/${atencionId}`,
-        {
+      
+      // Construcción Robusta del Payload (Garantizando campos exactos - Mapeo de Datos)
+      const payload = {
+          atencionEmergenciaId: idClean,
           codigoCIE10: cod,
-          descripcion: formData.descripcion || formData.descripcionCie,
-          tipoDiagnostico: tipo,
-          cronologia: formData.cronologia,
+          tipoDiagnostico: tipo || 'PRESUNTIVO', // Fallback de seguridad
+          descripcion: formData.descripcion || formData.descripcionCie || 'Sin descripción',
+          condicion: condicionFinal || 'Presuntivo', // Fallback de seguridad
           esCausaExterna: !!formData.esCausaExterna
-        },
+      };
+
+      if (mostrarSeccionCausaExterna && formDataCausaExterna.codigoCIE10) {
+          payload.causaExterna = {
+              codigoCIE10: formDataCausaExterna.codigoCIE10,
+              descripcion: formDataCausaExterna.descripcion,
+              tipoDiagnostico: tipo || 'PRESUNTIVO',
+              condicion: condicionFinal || 'Presuntivo'
+          };
+      }
+
+      console.log('Enviando Diagnóstico Payload (Saneado):', payload);
+
+      // Envío con ID limpio en URL (Limpieza de URL: evitar 1:1)
+      await axios.post(
+        `${API_BASE}/diagnosticos/atencion/${idClean}`,
+        payload,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      const idPadre = creado?.id ?? creado?.data?.id;
-      if (mostrarSeccionCausaExterna && formDataCausaExterna.codigoCIE10 && idPadre) {
-        const codCausa = (formDataCausaExterna.codigoCIE10 || '').trim();
-        await axios.post(
-          `${API_BASE}/diagnosticos/atencion/${atencionId}`,
-          {
-            codigoCIE10: codCausa,
-            descripcion: formDataCausaExterna.descripcion,
-            tipoDiagnostico: formDataCausaExterna.tipoDiagnostico,
-            esCausaExterna: true,
-            padreId: idPadre
-          },
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-      }
-      setFormData({ codigoCIE10: '', descripcionCie: '', descripcion: '', tipoDiagnostico: 'PRESUNTIVO', condicion: 'Presuntivo', esCausaExterna: false });
-      setMostrarSeccionCausaExterna(false);
-      setFormDataCausaExterna({ codigoCIE10: '', descripcion: '', tipoDiagnostico: 'PRESUNTIVO' });
-      setSearchCausaExterna('');
-      setCie10OptionsCausaExterna([]);
+
+      // Resetear formulario
       setShowAgregar(false);
-      setSearchCie10('');
+      setFormData({ 
+          codigoCIE10: '', descripcionCie: '', descripcion: '', 
+          tipoDiagnostico: 'PRESUNTIVO', condicion: 'Presuntivo', esCausaExterna: false 
+      });
+      setMostrarSeccionCausaExterna(false);
+      setFormDataCausaExterna({ codigoCIE10: '', descripcion: '', tipoDiagnostico: 'PRESUNTIVO', condicion: 'Presuntivo' });
+      
       cargarDiagnosticos();
+
     } catch (err) {
       console.error('Error al agregar diagnóstico:', err);
-      alert(err.response?.data?.message || 'Error al agregar el diagnóstico.');
-    }
-  };
-
-  const handleActualizarDiagnostico = async (diagnosticoId, datos) => {
-    try {
-      const token = localStorage.getItem('token');
-      await axios.put(`${API_BASE}/diagnosticos/${diagnosticoId}`, datos, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setEditingId(null);
-      cargarDiagnosticos();
-    } catch (err) {
-      console.error('Error al actualizar diagnóstico:', err);
-      alert(err.response?.data?.message || 'Error al actualizar.');
+      if (err.response?.status === 500) {
+          const backendMsg = err.response?.data?.message || err.response?.data?.error || '';
+          alert(`Error del Servidor (500): ${backendMsg || 'No se pudo procesar la solicitud. Posibles causas:\n- Datos incompletos o inválidos.\n- Problemas de conexión con la base de datos.'}`);
+      } else {
+          alert(err.response?.data?.message || 'Error al agregar el diagnóstico.');
+      }
     }
   };
 
@@ -282,560 +405,294 @@ const DiagnosticosCIE10 = ({ atencionId, readOnly = false, formDataMain }) => {
     }
   };
 
-  const handleCancelarAgregar = () => {
-    setShowAgregar(false);
-    setFormData({ codigoCIE10: '', descripcionCie: '', descripcion: '', tipoDiagnostico: 'PRESUNTIVO', condicion: 'Presuntivo', esCausaExterna: false });
-    setMostrarSeccionCausaExterna(false);
-    setFormDataCausaExterna({ codigoCIE10: '', descripcion: '', tipoDiagnostico: 'PRESUNTIVO' });
-    setSearchCie10('');
-    setSearchDescripcion('');
-    setSearchCausaExterna('');
-    setCie10OptionsCausaExterna([]);
+  // Renderizado de Etiquetas
+  const getBadgeStyle = (tipo, codigo) => {
+      if (esCodigoZ(codigo) || tipo === 'NO APLICA') return 'bg-slate-100 text-slate-700 border-slate-200';
+      if (tipo === 'DEFINITIVO') return 'bg-green-100 text-green-800 border-green-200';
+      if (tipo === 'PRESUNTIVO') return 'bg-amber-50 text-amber-800 border-amber-200'; // Ajustado visualmente
+      return 'bg-gray-100 text-gray-800 border-gray-200';
   };
-
-  const destinoLabel = (diag) => {
-    const cod = diag.codigoCIE10 || diag.CIE10?.codigo || '';
-    if (esCodigoZ(cod)) return { text: 'Estadístico', bg: 'bg-slate-100 text-slate-800', short: 'Z' };
-    if (diag.tipoDiagnostico === 'DEFINITIVO') return { text: 'M. Definitivo', bg: 'bg-green-100 text-green-800', short: 'M' };
-    return { text: 'L. Presuntivo', bg: 'bg-amber-100 text-amber-800', short: 'L' };
-  };
-
-  const tipoDiagnostico = (diag) => {
-    const cod = diag.codigoCIE10 || diag.CIE10?.codigo || '';
-    if (esCodigoZ(cod)) return { label: 'Estadístico', bg: 'bg-slate-100 text-slate-700' };
-    if (diag.padreId || esCausaExternaRango(cod)) return { label: 'Causa Externa', bg: 'bg-blue-100 text-blue-800' };
-    return { label: 'Morbilidad', bg: 'bg-gray-100 text-gray-800' };
-  };
-
-  const condicionLabel = (diag) => {
-    const cod = diag.codigoCIE10 || diag.CIE10?.codigo || '';
-    const t = diag.tipoDiagnostico;
-    if (esCodigoZ(cod) || t === 'ESTADISTICO' || t === 'NO APLICA') return 'No Aplica';
-    if (t === 'DEFINITIVO') return 'Definitivo';
-    return 'Presuntivo';
-  };
-
-  // Ordenar para anidar: sin padre primero, luego sus hijos (indentados)
-  const diagnosticosOrdenados = [...diagnosticos].sort((a, b) => {
-    const aPadre = a.padreId ?? 0;
-    const bPadre = b.padreId ?? 0;
-    if (aPadre === 0 && bPadre === 0) return (a.orden ?? 0) - (b.orden ?? 0) || (a.id - b.id);
-    if (aPadre === 0) return -1;
-    if (bPadre === 0) return 1;
-    if (aPadre !== bPadre) return aPadre - bPadre;
-    return (a.orden ?? 0) - (b.orden ?? 0) || (a.id - b.id);
-  });
 
   if (loading) {
-    return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-        <div className="text-center py-6 text-gray-500">Cargando diagnósticos...</div>
-      </div>
-    );
+    return <div className="p-8 text-center text-gray-500">Cargando diagnósticos...</div>;
   }
+
+  const esZCodeActual = esCodigoZ(formData.codigoCIE10);
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-      <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
-        <h3 className="text-lg font-semibold text-blue-700">DIAGNÓSTICO</h3>
+      <div className="flex items-center justify-between mb-6">
+        <h3 className="text-lg font-semibold text-blue-700 flex items-center gap-2">
+            <FileText className="w-5 h-5" />
+            DIAGNÓSTICO
+        </h3>
       </div>
 
-      {hayST && !tieneCausaExterna && (
-        <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800 text-sm">
+      {/* Alerta Informativa */}
+      {diagnosticos.some(d => esCodigoST(d.codigoCIE10 || d.CIE10?.codigo)) && !diagnosticos.some(d => esCausaExternaRango(d.codigoCIE10 || d.CIE10?.codigo)) && (
+        <div className="mb-6 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800 text-sm">
           <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
-          <div>
-            <strong>Trauma (código S o T):</strong> Debe agregar al menos un diagnóstico de causa externa (V00–V99, W00–X59, X60–Y09, Y35–Y84) para poder firmar.
-          </div>
+          <p>
+            <strong>Atención:</strong> Ha registrado un diagnóstico de Trauma (S/T). 
+            Debe agregar un diagnóstico de <strong>Causa Externa</strong> para proceder con el alta.
+          </p>
         </div>
       )}
 
+      {/* Formulario de Agregar */}
       {!readOnly && (
-        <div className="mb-6 rounded-xl border border-gray-200 bg-white shadow-sm p-5">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Buscar por Código <span className="text-red-500">*</span></label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={searchCie10}
-                  onChange={(e) => {
-                    setSearchCie10(e.target.value);
-                    if (e.target.value === '') {
-                        setFormData(prev => ({ ...prev, codigoCIE10: '', descripcionCie: '' }));
-                        setSearchDescripcion('');
-                    }
-                  }}
-                  placeholder="Ej: A01"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-9 text-gray-700 focus:ring-1 focus:ring-blue-400 focus:border-blue-400"
-                  autoFocus
-                />
-                {(searchCie10) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                        setSearchCie10('');
-                        setSearchDescripcion('');
-                        setFormData(prev => ({ ...prev, codigoCIE10: '', descripcionCie: '' }));
-                        setCie10Options([]);
-                    }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded"
-                    title="Limpiar"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Buscar por Descripción <span className="text-red-500">*</span></label>
-              <div className="relative">
-                <input
-                    type="text"
-                    value={searchDescripcion || formData.descripcionCie} // Mostrar descripción seleccionada o búsqueda
-                    onChange={(e) => {
-                        setSearchDescripcion(e.target.value);
-                         if (e.target.value === '') {
-                            setFormData(prev => ({ ...prev, codigoCIE10: '', descripcionCie: '' }));
-                            setSearchCie10('');
-                        }
-                    }}
-                    placeholder="Ej: Fiebre tifoidea..."
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-9 text-gray-700 focus:ring-1 focus:ring-blue-400 focus:border-blue-400"
-                />
-                 {(searchDescripcion || formData.descripcionCie) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                        setSearchDescripcion('');
-                        setSearchCie10('');
-                        setFormData(prev => ({ ...prev, codigoCIE10: '', descripcionCie: '' }));
-                        setCie10Options([]);
-                    }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded"
-                    title="Limpiar"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-          {searchingCie10 && <p className="text-xs text-gray-500 mb-2">Buscando...</p>}
-          {cie10Options.length > 0 && (
-            <div className="mt-2 border border-gray-200 rounded-lg bg-white shadow-sm max-h-52 overflow-y-auto divide-y divide-gray-100">
-              {cie10Options.map((cie10) => (
-                <button
-                  type="button"
-                  key={cie10.id}
-                  onClick={() => handleSelectCIE10(cie10)}
-                  className="w-full text-left px-4 py-2.5 hover:bg-blue-50/80 transition-colors flex gap-3 items-start text-sm"
-                >
-                  <span className="font-semibold text-blue-600 shrink-0">{cie10.codigo}</span>
-                  <span className="text-gray-700">{cie10.descripcion}</span>
+        <div className="mb-8 p-5 bg-gray-50 rounded-xl border border-gray-200 shadow-inner">
+          {!showAgregar ? (
+            <button
+              onClick={() => setShowAgregar(true)}
+              className="w-full py-3 border-2 border-dashed border-blue-300 rounded-lg text-blue-600 hover:bg-blue-50 hover:border-blue-400 font-medium transition-all"
+            >
+              + Agregar Nuevo Diagnóstico
+            </button>
+          ) : (
+            <div className="space-y-6">
+              {/* Header del Formulario */}
+              <div className="flex justify-between items-center border-b border-gray-200 pb-3">
+                <h4 className="font-semibold text-gray-700">Nuevo Diagnóstico</h4>
+                <button onClick={() => setShowAgregar(false)} className="text-gray-400 hover:text-gray-600">
+                    <X className="w-5 h-5" />
                 </button>
-              ))}
-            </div>
-          )}
+              </div>
 
-          {formData.codigoCIE10 && (
-            <>
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Condición (Presuntivo/Definitivo):</label>
-                    <select
-                    value={formData.tipoDiagnostico}
-                    onChange={(e) => setFormData({ ...formData, tipoDiagnostico: e.target.value })}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-gray-700"
-                    >
-                    <option value="PRESUNTIVO">L. Presuntivo</option>
-                    <option value="DEFINITIVO">M. Definitivo</option>
-                    {esCodigoZ(formData.codigoCIE10) && <option value="NO APLICA">No Aplica (Estadístico)</option>}
-                    </select>
-                    {esCodigoZ(formData.codigoCIE10) && formData.tipoDiagnostico !== 'NO APLICA' && (
-                        <p className="text-xs text-blue-600 mt-1">Código Z: Seleccione Presuntivo/Definitivo solo si es relevante para el 008, o No Aplica si es estadístico.</p>
-                    )}
-                    {(formData.tipoDiagnostico === 'PRESUNTIVO' && presuntivos.length >= MAX_PRESUNTIVOS) && (
-                    <p className="text-xs text-amber-600 mt-1">Límite normativo: máx. {MAX_PRESUNTIVOS} Presuntivos.</p>
-                    )}
-                    {(formData.tipoDiagnostico === 'DEFINITIVO' && definitivos.length >= MAX_DEFINITIVOS) && (
-                    <p className="text-xs text-amber-600 mt-1">Límite normativo: máx. {MAX_DEFINITIVOS} Definitivos.</p>
-                    )}
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Cronología:</label>
-                    <select
-                    value={formData.cronologia || 'PRIMERA'}
-                    onChange={(e) => setFormData({ ...formData, cronologia: e.target.value })}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-gray-700"
-                    >
-                    <option value="PRIMERA">Primera vez</option>
-                    <option value="SUBSECUENTE">Subsecuente</option>
-                    </select>
-                </div>
-                {esCausaExternaRango(formData.codigoCIE10) && (
-                    <div className="flex items-center gap-2 pt-6 sm:col-span-2">
-                    <label className="inline-flex items-center gap-2 cursor-pointer">
-                        <input
-                        type="checkbox"
-                        checked={!!formData.esCausaExterna}
-                        onChange={(e) => setFormData({ ...formData, esCausaExterna: e.target.checked })}
-                        className="rounded border-gray-300 text-blue-600"
+              {/* GRID LAYOUT PRINCIPAL - Sistema de Rejilla de 2 Columnas (Layout Grid) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                
+                {/* COLUMNA 1: Diagnóstico Principal + Condición */}
+                <div className="col-span-1 flex flex-col gap-4 p-5 bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+                    <h5 className="font-bold text-gray-800 border-b pb-3 text-sm tracking-wide uppercase flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">1</div>
+                        Diagnóstico Principal
+                    </h5>
+                    
+                    {/* Buscador (CIE-10) */}
+                    <div className="space-y-1">
+                        <AutoCompleteInput
+                            label="Buscar Diagnóstico (CIE-10)"
+                            name="busquedaCIE10"
+                            value={searchTerm}
+                            onChange={(e) => {
+                                setSearchTerm(e.target.value);
+                                if (!e.target.value) setFormData(prev => ({ ...prev, codigoCIE10: '', descripcionCie: '' }));
+                            }}
+                            onSearch={buscarCIE10}
+                            suggestions={cie10Options}
+                            onSelect={handleSelectCIE10}
+                            displayKey="labelCompleto"
+                            placeholder="Ej: A090, J00..."
+                            disabled={readOnly}
+                            required
                         />
-                        <span className="text-sm font-medium text-gray-700">Es Causa Externa (V-W-X-Y)</span>
-                    </label>
+                        {searchingCie10 && <span className="text-xs text-blue-500 font-medium ml-1">Buscando...</span>}
+                    </div>
+
+                    {/* Condición de Diagnóstico */}
+                    <div className={`p-4 rounded-lg border transition-colors ${esZCodeActual ? 'bg-gray-50 border-gray-200' : 'bg-blue-50/30 border-blue-100'}`}>
+                        <label className="block text-xs font-bold text-gray-700 mb-2 uppercase tracking-wide">
+                            Condición del Diagnóstico <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                            value={formData.condicion}
+                            onChange={handleCondicionChange}
+                            disabled={esZCodeActual} // Bloqueo automático si es código Z
+                            required
+                            className={`w-full px-3 py-2.5 rounded-lg border focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-sm text-sm font-medium
+                                ${esZCodeActual ? 'bg-gray-100 text-gray-500 border-gray-200 cursor-not-allowed' : 'bg-white border-gray-300 text-gray-800 hover:border-blue-300'}`}
+                        >
+                            {esZCodeActual ? (
+                                <option value="NO APLICA">No Aplica (Estadístico - Código Z)</option>
+                            ) : (
+                                <>
+                                    <option value="" disabled>-- Seleccione Condición --</option>
+                                    <option value="Presuntivo">Presuntivo</option>
+                                    <option value="Definitivo Inicial">Definitivo Inicial</option>
+                                    <option value="Definitivo Inicial por Laboratorio">Definitivo Inicial por Laboratorio</option>
+                                </>
+                            )}
+                        </select>
+                        {!esZCodeActual && formData.tipoDiagnostico && (
+                            <div className="mt-3 flex items-center justify-between">
+                                <span className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Tipo Clasificado:</span>
+                                <span className={`text-xs px-2.5 py-1 rounded-full font-bold shadow-sm border ${
+                                    formData.tipoDiagnostico === 'DEFINITIVO'
+                                        ? 'bg-green-100 text-green-700 border-green-200'
+                                        : 'bg-amber-100 text-amber-700 border-amber-200'
+                                }`}>
+                                    {formData.tipoDiagnostico}
+                                </span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* COLUMNA 2: Causa Externa + Condición (Solo si es Trauma S/T) */}
+                {mostrarSeccionCausaExterna && (
+                    <div className="col-span-1 flex flex-col gap-4 p-5 bg-amber-50/50 border border-amber-200 rounded-xl shadow-sm animate-in fade-in slide-in-from-right-4 duration-300">
+                        <h5 className="font-bold text-amber-900 border-b border-amber-200 pb-3 text-sm tracking-wide uppercase flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-full bg-amber-200 text-amber-800 flex items-center justify-center text-xs font-bold">2</div>
+                            Causa Externa (V-Y)
+                        </h5>
+                        
+                        {/* Buscador Causa Externa */}
+                        <div className="space-y-1">
+                            <AutoCompleteInput
+                                label={
+                                    <span className="flex items-center gap-1 text-amber-900 font-semibold">
+                                        Buscar Causa Externa <span className="text-red-600">*</span>
+                                    </span>
+                                }
+                                name="busquedaCausaExterna"
+                                value={externalCauseSearchTerm}
+                                onChange={(e) => {
+                                    setExternalCauseSearchTerm(e.target.value);
+                                    if (!e.target.value) setFormDataCausaExterna(prev => ({ ...prev, codigoCIE10: '', descripcion: '' }));
+                                }}
+                                onSearch={buscarCausaExterna}
+                                suggestions={cie10OptionsCausaExterna}
+                                onSelect={handleSelectCausaExterna}
+                                displayKey="labelCompleto"
+                                placeholder="Ej: W01, X59..."
+                                disabled={readOnly}
+                                required
+                            />
+                            {searchingCausaExterna && <span className="text-xs text-amber-700 font-medium ml-1">Filtrando códigos V, W, X, Y...</span>}
+                        </div>
+
+                        {/* Condición Causa Externa (Visible y Sincronizada) */}
+                        <div className="bg-white p-4 rounded-lg border border-amber-100 shadow-sm">
+                            <label className="block text-xs font-bold text-amber-900 mb-2 uppercase tracking-wide">
+                                Condición (Sincronizada)
+                            </label>
+                            <select
+                                value={formDataCausaExterna.condicion || formData.condicion} // Fallback a la principal
+                                disabled={true} // Deshabilitado para forzar sincronización
+                                className="w-full px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50 text-gray-500 font-medium text-sm cursor-not-allowed"
+                            >
+                                <option value="" disabled>-- Sincronizando --</option>
+                                <option value="Presuntivo">Presuntivo</option>
+                                <option value="Definitivo Inicial">Definitivo Inicial</option>
+                                <option value="Definitivo Inicial por Laboratorio">Definitivo Inicial por Laboratorio</option>
+                                <option value="NO APLICA">No Aplica</option>
+                            </select>
+                            <div className="mt-3 flex items-center gap-2">
+                                <span className="text-[10px] uppercase tracking-wider text-amber-800 font-bold">Clasificación:</span>
+                                <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded font-medium border border-amber-200">
+                                    {formDataCausaExterna.tipoDiagnostico || formData.tipoDiagnostico}
+                                </span>
+                            </div>
+                        </div>
                     </div>
                 )}
+
+                {/* 3. Observación (Ancho Completo) */}
+                <div className="col-span-1 md:col-span-2 mt-2">
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                        Observación (Opcional)
+                    </label>
+                    <textarea
+                        value={formData.descripcion}
+                        onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
+                        placeholder="Detalles adicionales del diagnóstico..."
+                        rows={2}
+                        className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm text-sm resize-none"
+                    />
                 </div>
-              {mostrarSeccionCausaExterna && (
-                <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50/50 p-4 shadow-sm animate-pulse-once ring-2 ring-blue-100">
-                  <p className="text-sm font-bold text-blue-800 mb-2 flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-600" />
-                    ATENCIÓN: Causa externa (V01–Y84) — obligatoria para trauma S/T
-                  </p>
-                  {faltaCausaExterna && (
-                    <p className="text-xs text-amber-700 mb-2 flex items-center gap-1">
-                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                      Debe seleccionar un código V, W, X o Y antes de agregar.
-                    </p>
-                  )}
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Buscar código V, W, X o Y:</label>
-                  <input
-                    type="text"
-                    value={searchCausaExterna}
-                    onChange={(e) => setSearchCausaExterna(e.target.value)}
-                    placeholder="Ej: V01, W21, X59..."
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 focus:ring-1 focus:ring-blue-400"
-                  />
-                  {searchingCausaExterna && <p className="text-xs text-gray-500 mt-1">Buscando...</p>}
-                  {cie10OptionsCausaExterna.length > 0 && (
-                    <div className="mt-2 border border-gray-200 rounded-lg bg-white max-h-40 overflow-y-auto divide-y divide-gray-100">
-                      {cie10OptionsCausaExterna.map((cie10) => (
-                        <button
-                          type="button"
-                          key={cie10.id}
-                          onClick={() => {
-                            const c = (cie10.codigo || '').trim();
-                            setFormDataCausaExterna(prev => ({
-                              ...prev,
-                              codigoCIE10: c,
-                              descripcion: cie10.descripcion || prev.descripcion
-                            }));
-                            setSearchCausaExterna(c);
-                            setCie10OptionsCausaExterna([]);
-                          }}
-                          className="w-full text-left px-3 py-2 hover:bg-blue-50 text-sm flex gap-2"
-                        >
-                          <span className="font-semibold text-blue-600">{cie10.codigo}</span>
-                          <span className="text-gray-700">{cie10.descripcion}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {formDataCausaExterna.codigoCIE10 && (
-                    <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Condición Causa Externa:</label>
-                        <select
-                          value={formDataCausaExterna.tipoDiagnostico}
-                          onChange={(e) => setFormDataCausaExterna(prev => ({ ...prev, tipoDiagnostico: e.target.value }))}
-                          className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
-                        >
-                          <option value="PRESUNTIVO">Presuntivo</option>
-                          <option value="DEFINITIVO">Definitivo</option>
-                        </select>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-              <div className="mt-3">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Observación</label>
-                <textarea
-                  value={formData.descripcion}
-                  onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
-                  rows={2}
-                  placeholder="Observaciones adicionales del diagnóstico"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-gray-700 focus:ring-1 focus:ring-blue-400"
-                />
               </div>
-              <div className="flex gap-2 mt-4 justify-end">
-                <button
-                  type="button"
-                  onClick={handleCancelarAgregar}
-                  className="inline-flex items-center gap-2 px-4 py-2 border border-red-200 text-red-700 rounded-lg hover:bg-red-50 text-sm font-medium"
-                >
-                  <X className="w-4 h-4" />
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleAgregarDiagnostico}
-                  disabled={!formData.codigoCIE10 || faltaCausaExterna || (!esCodigoZ(formData.codigoCIE10) && ((formData.tipoDiagnostico === 'PRESUNTIVO' && presuntivos.length >= MAX_PRESUNTIVOS) || (formData.tipoDiagnostico === 'DEFINITIVO' && definitivos.length >= MAX_DEFINITIVOS)))}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-sm font-medium"
-                >
-                  <Save className="w-4 h-4" />
-                  Confirmar
-                </button>
+
+
+              {/* Botones de Acción */}
+              <div className="flex justify-end gap-3 pt-2 border-t border-gray-200 mt-4">
+                  <button
+                      onClick={() => setShowAgregar(false)}
+                      className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium transition-colors"
+                  >
+                      Cancelar
+                  </button>
+                  <button
+                      type="button"
+                      onClick={handleAgregarDiagnostico}
+                      className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm transition-colors flex items-center gap-2"
+                  >
+                      <Save className="w-4 h-4" />
+                      Guardar Diagnóstico
+                  </button>
               </div>
-            </>
+
+            </div>
           )}
         </div>
       )}
 
-      <div className="rounded-lg border border-gray-100 bg-gray-50/50 px-3 py-2 text-sm text-gray-600 mb-4">
-        <strong>Resumen para PDF 008:</strong> {presuntivos.length} Presuntivos (L), {definitivos.length} Definitivos (M), {estadisticos.length} Estadísticos (no ocupan slots).
-      </div>
-
-      <div className="mt-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-0 px-4 py-3 bg-blue-600 rounded-t-xl">
-          <h4 className="text-base font-semibold text-white">Diagnósticos registrados</h4>
-          <div className="flex items-center gap-4 text-xs text-blue-100">
-            <span className="font-medium">Semaforización para diagnósticos de Notificación Obligatoria — Intervención e investigación en máximo:</span>
-            <span className="flex items-center gap-1.5">
-              <span className="inline-block w-3 h-3 rounded-sm bg-red-400 border border-white/30" title="24 horas" />
-              24 horas
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="inline-block w-3 h-3 rounded-sm bg-amber-300 border border-white/30" title="48 horas" />
-              48 horas
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="inline-block w-3 h-3 rounded-sm bg-green-400 border border-white/30" title="Indefinido" />
-              Indefinido
-            </span>
-          </div>
-        </div>
-        <div className="overflow-x-auto rounded-b-xl border border-t-0 border-gray-200 shadow-sm">
-          <table className="w-full text-sm border-collapse">
-            <thead>
-              <tr className="bg-gray-50 text-left">
-                <th className="px-4 py-2.5 border-b font-medium text-gray-700">Código</th>
-                <th className="px-4 py-2.5 border-b font-medium text-gray-700">Diagnóstico</th>
-                <th className="px-4 py-2.5 border-b font-medium text-gray-700">Tipo</th>
-                <th className="px-4 py-2.5 border-b font-medium text-gray-700">Condición</th>
-                <th className="px-4 py-2.5 border-b font-medium text-gray-700">Observaciones</th>
-                {!readOnly && <th className="px-4 py-2.5 border-b font-medium text-gray-700 w-24">Acciones</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {diagnosticos.length === 0 ? (
+      {/* Tabla de Resultados */}
+      <div className="overflow-hidden rounded-xl border border-gray-200 shadow-sm">
+        <table className="w-full text-sm text-left">
+          <thead className="bg-gray-50 text-gray-700 font-medium">
+            <tr>
+              <th className="px-4 py-3 border-b">Código</th>
+              <th className="px-4 py-3 border-b">Diagnóstico</th>
+              <th className="px-4 py-3 border-b">Tipo</th>
+              <th className="px-4 py-3 border-b">Condición</th>
+              <th className="px-4 py-3 border-b text-right">Acciones</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {diagnosticos.length === 0 ? (
                 <tr>
-                  <td colSpan={readOnly ? 5 : 6} className="px-4 py-8 text-center text-gray-500">
-                    No hay diagnósticos registrados.
-                  </td>
+                    <td colSpan="5" className="px-4 py-8 text-center text-gray-500">
+                        No hay diagnósticos registrados.
+                    </td>
                 </tr>
-              ) : (
-                diagnosticosOrdenados.map((diag) => {
-                  const destino = destinoLabel(diag);
-                  const tipo = tipoDiagnostico(diag);
-                  const condicion = condicionLabel(diag);
-                  const cod = diag.codigoCIE10 || diag.CIE10?.codigo || '';
-                  const esHijo = !!diag.padreId;
-                  return (
-                    <React.Fragment key={diag.id}>
-                      {editingId === diag.id ? (
-                        <tr>
-                          <td colSpan={readOnly ? 5 : 6} className="p-4 bg-amber-50/50 border-b">
-                            <EditarDiagnostico
-                              diagnostico={diag}
-                              onSave={(datos) => handleActualizarDiagnostico(diag.id, datos)}
-                              onCancel={() => setEditingId(null)}
-                              readOnly={readOnly}
-                            />
-                          </td>
-                        </tr>
-                      ) : (
-                        <tr className={`bg-white hover:bg-gray-50/50 ${esHijo ? 'border-l-4 border-l-blue-300' : ''}`}>
-                          <td className={`px-4 py-2 border-b ${esHijo ? 'pl-8' : ''}`}>
-                            <span className="font-bold text-blue-600">{cod}</span>
-                          </td>
-                          <td className="px-4 py-2 border-b">
-                            <p className="text-gray-700">{diag.CIE10?.descripcion || diag.descripcion}</p>
-                            {esCodigoZ(cod) && (
-                              <p className="text-xs text-slate-600 mt-1 flex items-center gap-1">
-                                <FileText className="w-3.5 h-3.5" />
-                                No se refleja en el Formulario 008 legal.
-                              </p>
-                            )}
-                          </td>
-                          <td className="px-4 py-2 border-b">
-                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${tipo.bg}`}>{tipo.label}</span>
-                          </td>
-                          <td className="px-4 py-2 border-b">
-                            <span className={`px-2 py-0.5 rounded text-xs font-semibold ${destino.bg}`}>{condicion}</span>
-                          </td>
-                          <td className="px-4 py-2 border-b text-gray-600">
-                          </td>
-                          <td className="px-4 py-2 border-b text-gray-600 max-w-[200px] truncate" title={diag.descripcion || ''}>
-                            {diag.descripcion || '—'}
-                          </td>
-                          {!readOnly && (
-                            <td className="px-4 py-2 border-b">
-                              <div className="flex gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingId(diag.id)}
-                                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
-                                  title="Editar"
-                                >
-                                  <Edit2 className="w-4 h-4" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleEliminarDiagnostico(diag.id)}
-                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded"
-                                  title="Eliminar"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
+            ) : (
+                diagnosticos.map((diag) => {
+                    const cod = diag.codigoCIE10 || diag.CIE10?.codigo || '';
+                    const esHijo = !!diag.padreId;
+                    const badgeClass = getBadgeStyle(diag.tipoDiagnostico, cod);
+                    
+                    return (
+                        <tr key={diag.id} className={`hover:bg-gray-50/50 ${esHijo ? 'bg-blue-50/30' : ''}`}>
+                            <td className={`px-4 py-3 font-semibold text-gray-900 ${esHijo ? 'pl-8 border-l-4 border-blue-200' : ''}`}>
+                                {cod}
                             </td>
-                          )}
+                            <td className="px-4 py-3 text-gray-700">
+                                {diag.CIE10?.descripcion || diag.descripcion}
+                                {diag.descripcion && diag.descripcion !== (diag.CIE10?.descripcion) && (
+                                    <div className="text-xs text-gray-500 mt-1 italic">Obs: {diag.descripcion}</div>
+                                )}
+                            </td>
+                            <td className="px-4 py-3">
+                                <span className={`inline-flex px-2 py-1 rounded text-xs font-medium border ${badgeClass}`}>
+                                    {diag.tipoDiagnostico}
+                                </span>
+                            </td>
+                            <td className="px-4 py-3 text-gray-600">
+                                {diag.condicion}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                                {!readOnly && (
+                                    <button
+                                        onClick={() => handleEliminarDiagnostico(diag.id)}
+                                        className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50 transition-colors"
+                                        title="Eliminar"
+                                    >
+                                        <Trash2 className="w-4 h-4" />
+                                    </button>
+                                )}
+                            </td>
                         </tr>
-                      )}
-                    </React.Fragment>
-                  );
+                    );
                 })
-              )}
-            </tbody>
-          </table>
-        </div>
+            )}
+          </tbody>
+        </table>
       </div>
-    </div>
-  );
-};
-
-const EditarDiagnostico = ({ diagnostico, onSave, onCancel, readOnly }) => {
-  const cod = diagnostico.codigoCIE10 || diagnostico.CIE10?.codigo || '';
-  const [formData, setFormData] = useState({
-    codigoCIE10: cod,
-    descripcion: diagnostico.descripcion || '',
-    tipoDiagnostico: (diagnostico.tipoDiagnostico === 'NO APLICA' || diagnostico.tipoDiagnostico === 'ESTADISTICO') ? 'NO APLICA' : diagnostico.tipoDiagnostico,
-    esCausaExterna: !!diagnostico.esCausaExterna
-  });
-  const [cie10Options, setCie10Options] = useState([]);
-  const [searchCie10, setSearchCie10] = useState(cod);
-  const debRef = useRef(null);
-
-  const buscar = (term) => {
-    if (String(term || '').trim().length < 2) {
-      setCie10Options([]);
-      return;
-    }
-    if (debRef.current) clearTimeout(debRef.current);
-    debRef.current = setTimeout(async () => {
-      try {
-        const token = localStorage.getItem('token');
-        const { data } = await axios.get(
-          `${API_BASE}/cat-cie10/search?query=${encodeURIComponent(term)}`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        setCie10Options(Array.isArray(data) ? data.slice(0, 10) : []);
-      } catch (_) {
-        setCie10Options([]);
-      }
-    }, 250);
-  };
-
-  useEffect(() => {
-    buscar(searchCie10);
-    return () => { if (debRef.current) clearTimeout(debRef.current); };
-  }, [searchCie10]);
-
-  const handleSelect = (cie10) => {
-    const c = (cie10.codigo || '').trim();
-    setFormData(prev => ({
-      ...prev,
-      codigoCIE10: c,
-      descripcion: cie10.descripcion || prev.descripcion,
-      tipoDiagnostico: esCodigoZ(c) ? 'NO APLICA' : prev.tipoDiagnostico,
-      esCausaExterna: esCausaExternaRango(c) ? prev.esCausaExterna : false
-    }));
-    setSearchCie10(c);
-    setCie10Options([]);
-  };
-
-  const esZ = esCodigoZ(formData.codigoCIE10);
-
-  return (
-    <div className="space-y-3">
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Código CIE-10:</label>
-        <input
-          type="text"
-          value={searchCie10}
-          onChange={(e) => { setSearchCie10(e.target.value); buscar(e.target.value); }}
-          className="w-full border border-gray-200 rounded-lg px-3 py-2"
-          disabled={readOnly}
-        />
-        {cie10Options.length > 0 && (
-          <div className="mt-1 border border-gray-200 rounded-lg bg-white max-h-40 overflow-y-auto divide-y divide-gray-100">
-            {cie10Options.map((cie10) => (
-              <button
-                type="button"
-                key={cie10.id}
-                onClick={() => handleSelect(cie10)}
-                className="w-full text-left px-3 py-2 hover:bg-blue-50 flex gap-2 text-sm"
-              >
-                <span className="font-semibold text-blue-600">{cie10.codigo}</span>
-                <span className="text-gray-700">{cie10.descripcion}</span>
-              </button>
-            ))}
-          </div>
-        )}
+      
+      <div className="mt-4 text-xs text-gray-500 text-right">
+        * Códigos Z no se reflejan en Formulario 008 Legal.
       </div>
-      {!esZ && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Tipo:</label>
-          <select
-            value={formData.tipoDiagnostico}
-            onChange={(e) => setFormData({ ...formData, tipoDiagnostico: e.target.value })}
-            disabled={readOnly}
-            className="w-full border border-gray-200 rounded-lg px-3 py-2"
-          >
-            <option value="PRESUNTIVO">L. Presuntivo</option>
-            <option value="DEFINITIVO">M. Definitivo</option>
-            <option value="ESTADISTICO">Estadístico</option>
-          </select>
-        </div>
-      )}
-      {esCausaExternaRango(formData.codigoCIE10) && (
-        <label className="inline-flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={!!formData.esCausaExterna}
-            onChange={(e) => setFormData({ ...formData, esCausaExterna: e.target.checked })}
-            disabled={readOnly}
-            className="rounded border-gray-300 text-blue-600"
-          />
-          <span className="text-sm font-medium text-gray-700">Es Causa Externa</span>
-        </label>
-      )}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Descripción:</label>
-        <textarea
-          value={formData.descripcion}
-          onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
-          rows={2}
-          className="w-full border border-gray-200 rounded-lg px-3 py-2"
-          disabled={readOnly}
-        />
-      </div>
-      {!readOnly && (
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => onSave(formData)}
-            className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 flex items-center gap-1"
-          >
-            <Save className="w-4 h-4" />
-            Guardar
-          </button>
-          <button type="button" onClick={onCancel} className="px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-300">
-            Cancelar
-          </button>
-        </div>
-      )}
     </div>
   );
 };

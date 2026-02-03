@@ -365,6 +365,58 @@ exports.getHistorialAtencionPaciente = async (req, res) => {
   }
 };
 
+exports.getUltimosLlamados = async (req, res) => {
+  try {
+    // Buscar estados 'EN_ATENCION' y 'SIGNOS_VITALES'
+    const estados = await CatEstadoPaciente.findAll({
+      where: { nombre: ['EN_ATENCION', 'SIGNOS_VITALES'] },
+      attributes: ['id', 'nombre']
+    });
+    const estadosIds = estados.map(e => e.id);
+
+    const ultimos = await AtencionPacienteEstado.findAll({
+      where: { estado_id: { [Op.in]: estadosIds } },
+      order: [['createdAt', 'DESC']],
+      limit: 5,
+      include: [
+        {
+           model: Admision,
+           as: 'AdmisionEstado',
+           include: [{ model: Paciente, as: 'Paciente' }]
+        },
+        { model: CatEstadoPaciente, as: 'Estado' },
+        {
+           model: Usuario,
+           as: 'UsuarioResponsableAtencion',
+           include: [{ model: Rol, as: 'Rol' }]
+        }
+      ]
+    });
+
+    const respuesta = ultimos.map(u => {
+      const paciente = u.AdmisionEstado?.Paciente;
+      const nombrePaciente = paciente
+        ? `${paciente.primer_nombre || ''} ${paciente.segundo_nombre || ''} ${paciente.primer_apellido || ''} ${paciente.segundo_apellido || ''}`.trim()
+        : 'Desconocido';
+      
+      const area = u.UsuarioResponsableAtencion?.Rol?.nombre || 'Emergencia';
+      
+      return {
+        admisionId: u.admisionId,
+        nombrePaciente,
+        areaConsultorio: area,
+        estadoNuevo: u.Estado?.nombre,
+        updatedAt: u.createdAt
+      };
+    });
+
+    res.status(200).json(respuesta);
+  } catch (error) {
+    console.error('Error al obtener últimos llamados:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 // Nueva función para crear o actualizar el estado de atención del paciente
 exports.createOrUpdateAtencionPacienteEstado = async (admision, estadoNombre, usuarioId, rolId, usuarioResponsableId = undefined, observaciones = undefined, transaction = undefined) => {
   try {

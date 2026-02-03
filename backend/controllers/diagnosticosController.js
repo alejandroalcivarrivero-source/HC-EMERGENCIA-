@@ -1,7 +1,7 @@
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const AtencionEmergencia = require('../models/atencionEmergencia');
-const DetalleDiagnosticos = require('../models/detalleDiagnosticos');
+const DetalleDiagnostico = require('../models/DetalleDiagnostico');
 const CatCIE10 = require('../models/catCie10');
 const Pacientes = require('../models/pacientes');
 const CatSexos = require('../models/cat_sexos');
@@ -14,17 +14,17 @@ exports.getDiagnosticos = async (req, res) => {
   try {
     const { atencionId } = req.params;
 
-    const diagnosticos = await DetalleDiagnosticos.findAll({
-      where: { atencion_emergencia_id: atencionId },
-      attributes: ['id', 'atencion_emergencia_id', 'codigo_cie10', 'tipo_diagnostico', 'condicion', 'padre_id', 'es_causa_externa'],
+    const diagnosticos = await DetalleDiagnostico.findAll({
+      where: { atencionEmergenciaId: atencionId },
+      attributes: ['id', 'atencionEmergenciaId', 'codigoCIE10', 'tipoDiagnostico', 'condicion', 'padreId', 'esCausaExterna', 'descripcion'],
       include: [{
         model: CatCIE10,
         as: 'CIE10',
         attributes: ['codigo', 'descripcion']
       }, {
-        model: DetalleDiagnosticos,
+        model: DetalleDiagnostico,
         as: 'CausaExternaPadre',
-        attributes: ['id', 'codigo_cie10', 'tipo_diagnostico', 'condicion', 'es_causa_externa'],
+        attributes: ['id', 'codigoCIE10', 'tipoDiagnostico', 'condicion', 'esCausaExterna'],
         required: false
       }],
       order: [['id', 'ASC']]
@@ -39,14 +39,21 @@ exports.getDiagnosticos = async (req, res) => {
 
 /**
  * Agregar un diagnóstico
- * Regla Z: código inicia con Z → ESTADISTICO (no ocupa slots 008).
- * Regla S-T: código inicia con S o T → requiereCausaExterna (segundo dx V00-Y84).
  */
 exports.agregarDiagnostico = async (req, res) => {
   try {
     const { atencionId } = req.params;
-    // CRONOLOGÍA ELIMINADA: Eliminamos 'cronologia' del body
-    const { codigoCIE10, descripcion, tipoDiagnostico, condicion, esCausaExterna, padreId } = req.body;
+    const { atencionEmergenciaId, codigoCIE10, descripcion, tipoDiagnostico, condicion, esCausaExterna, padreId } = req.body;
+
+    // Validación básica de campos requeridos
+    if (!codigoCIE10 || !tipoDiagnostico) {
+        return res.status(400).json({ message: 'Faltan datos obligatorios: código CIE10 y tipo de diagnóstico.' });
+    }
+
+    // Verificar consistencia de IDs si se envían ambos
+    if (atencionEmergenciaId && String(atencionEmergenciaId) !== String(atencionId)) {
+        return res.status(400).json({ message: 'Inconsistencia en IDs de atención.' });
+    }
 
     // Verificar que la atención existe
     const atencion = await AtencionEmergencia.findByPk(atencionId);
@@ -79,7 +86,6 @@ exports.agregarDiagnostico = async (req, res) => {
     const codigo = (codigoCIE10 || '').trim().toUpperCase();
     
     // Validación Estricta: Si es S/T, DEBE llegar con su par (req.body.causaExterna)
-    // Excepción: Si Evento Traumático es "No Aplica" (ya validado arriba por validarDiagnostico, pero reforzamos lógica de guardado)
     if (esCodigoST(codigo) && !noAplicaEventoTraumatico && !req.body.causaExterna) {
         return res.status(400).json({
             message: 'Violación de regla de integridad: Los diagnósticos de trauma (S/T) deben guardarse simultáneamente con su Causa Externa (V-Y).'
@@ -115,14 +121,14 @@ exports.agregarDiagnostico = async (req, res) => {
     const t = await sequelize.transaction();
     
     try {
-        const diagnostico = await DetalleDiagnosticos.create({
-          atencion_emergencia_id: atencionId,
-          codigo_cie10: codigoCIE10,
-          tipo_diagnostico: tipoDiagnosticoFinal,
+        const diagnostico = await DetalleDiagnostico.create({
+          atencionEmergenciaId: atencionId,
+          codigoCIE10: codigoCIE10,
+          tipoDiagnostico: tipoDiagnosticoFinal,
           condicion: condicionFinal,
           descripcion: (descripcion === undefined || descripcion === null) ? cie10.descripcion : descripcion,
-          padre_id: padreId ? parseInt(padreId, 10) : null,
-          es_causa_externa: !!esCausaExterna
+          padreId: padreId ? parseInt(padreId, 10) : null,
+          esCausaExterna: !!esCausaExterna
         }, { transaction: t });
 
         // Si hay causa externa anidada (par V-Y)
@@ -135,28 +141,28 @@ exports.agregarDiagnostico = async (req, res) => {
                 throw new Error(`Código de causa externa ${ceCod} no encontrado.`);
             }
 
-            await DetalleDiagnosticos.create({
-                atencion_emergencia_id: atencionId,
-                codigo_cie10: ceCod,
-                tipo_diagnostico: ceTipo || 'PRESUNTIVO', // Default a presuntivo si no viene
+            await DetalleDiagnostico.create({
+                atencionEmergenciaId: atencionId,
+                codigoCIE10: ceCod,
+                tipoDiagnostico: ceTipo || 'PRESUNTIVO', 
                 condicion: 'CAUSA EXTERNA',
                 descripcion: ceDesc || cie10CE.descripcion,
-                padre_id: diagnostico.id,
-                es_causa_externa: true
+                padreId: diagnostico.id,
+                esCausaExterna: true
             }, { transaction: t });
         }
 
         await t.commit();
 
-        const diagnosticoCompleto = await DetalleDiagnosticos.findByPk(diagnostico.id, {
+        const diagnosticoCompleto = await DetalleDiagnostico.findByPk(diagnostico.id, {
           include: [{
             model: CatCIE10,
             as: 'CIE10',
             attributes: ['codigo', 'descripcion']
           }, {
-            model: DetalleDiagnosticos,
+            model: DetalleDiagnostico,
             as: 'CausaExternaPadre',
-            attributes: ['id', 'codigo_cie10', 'tipo_diagnostico', 'condicion', 'es_causa_externa'],
+            attributes: ['id', 'codigoCIE10', 'tipoDiagnostico', 'condicion', 'esCausaExterna'],
             required: false
           }]
         });
@@ -180,28 +186,27 @@ exports.agregarDiagnostico = async (req, res) => {
 exports.actualizarDiagnostico = async (req, res) => {
   try {
     const { diagnosticoId } = req.params;
-    // CRONOLOGÍA ELIMINADA: No se espera cronologia en el body
     const { codigoCIE10, descripcion, tipoDiagnostico, condicion, esCausaExterna, padreId } = req.body;
 
-    const diagnostico = await DetalleDiagnosticos.findByPk(diagnosticoId);
+    const diagnostico = await DetalleDiagnostico.findByPk(diagnosticoId);
     if (!diagnostico) {
       return res.status(404).json({ message: 'Diagnóstico no encontrado.' });
     }
 
-    const codigoFinal = (codigoCIE10 || diagnostico.codigo_cie10 || '').trim().toUpperCase();
-    let tipoDiagnosticoFinal = tipoDiagnostico || diagnostico.tipo_diagnostico;
+    const codigoFinal = (codigoCIE10 || diagnostico.codigoCIE10 || '').trim().toUpperCase();
+    let tipoDiagnosticoFinal = tipoDiagnostico || diagnostico.tipoDiagnostico;
     let condicionFinal = condicion || diagnostico.condicion;
 
     // Normalización al actualizar
     if (esCodigoZ(codigoFinal)) {
-      if (tipoDiagnostico === 'NO APLICA' || (!tipoDiagnostico && diagnostico.tipo_diagnostico === 'ESTADISTICO')) {
+      if (tipoDiagnostico === 'NO APLICA' || (!tipoDiagnostico && diagnostico.tipoDiagnostico === 'ESTADISTICO')) {
         tipoDiagnosticoFinal = 'ESTADISTICO';
         condicionFinal = 'NO APLICA';
       } else {
-        tipoDiagnosticoFinal = tipoDiagnostico || diagnostico.tipo_diagnostico;
+        tipoDiagnosticoFinal = tipoDiagnostico || diagnostico.tipoDiagnostico;
         if (!condicionFinal) condicionFinal = 'PRINCIPAL';
       }
-    } else if (esCausaExterna !== undefined ? !!esCausaExterna : diagnostico.es_causa_externa) {
+    } else if (esCausaExterna !== undefined ? !!esCausaExterna : diagnostico.esCausaExterna) {
       condicionFinal = 'CAUSA EXTERNA';
     } else if (esCodigoST(codigoFinal)) {
       if (!condicionFinal) condicionFinal = 'PRINCIPAL';
@@ -220,25 +225,24 @@ exports.actualizarDiagnostico = async (req, res) => {
         condicionFinal = 'Presuntivo';
     }
 
-
     await diagnostico.update({
-      codigo_cie10: codigoFinal || diagnostico.codigo_cie10,
-      tipo_diagnostico: tipoDiagnosticoFinal,
+      codigoCIE10: codigoFinal || diagnostico.codigoCIE10,
+      tipoDiagnostico: tipoDiagnosticoFinal,
       condicion: condicionFinal,
       descripcion: descripcion !== undefined ? descripcion : diagnostico.descripcion,
-      padre_id: padreId !== undefined ? (padreId ? parseInt(padreId, 10) : null) : diagnostico.padre_id,
-      es_causa_externa: esCausaExterna !== undefined ? !!esCausaExterna : diagnostico.es_causa_externa
+      padreId: padreId !== undefined ? (padreId ? parseInt(padreId, 10) : null) : diagnostico.padreId,
+      esCausaExterna: esCausaExterna !== undefined ? !!esCausaExterna : diagnostico.esCausaExterna
     });
 
-    const diagnosticoActualizado = await DetalleDiagnosticos.findByPk(diagnosticoId, {
+    const diagnosticoActualizado = await DetalleDiagnostico.findByPk(diagnosticoId, {
       include: [{
         model: CatCIE10,
         as: 'CIE10',
         attributes: ['codigo', 'descripcion']
       }, {
-        model: DetalleDiagnosticos,
+        model: DetalleDiagnostico,
         as: 'CausaExternaPadre',
-        attributes: ['id', 'codigo_cie10', 'tipo_diagnostico', 'condicion', 'es_causa_externa'],
+        attributes: ['id', 'codigoCIE10', 'tipoDiagnostico', 'condicion', 'esCausaExterna'],
         required: false
       }]
     });
@@ -257,7 +261,7 @@ exports.eliminarDiagnostico = async (req, res) => {
   try {
     const { diagnosticoId } = req.params;
 
-    const diagnostico = await DetalleDiagnosticos.findByPk(diagnosticoId);
+    const diagnostico = await DetalleDiagnostico.findByPk(diagnosticoId);
     if (!diagnostico) {
       return res.status(404).json({ message: 'Diagnóstico no encontrado.' });
     }
@@ -277,12 +281,12 @@ exports.validarFirma = async (req, res) => {
   try {
     const { atencionId } = req.params;
 
-    const diagnosticos = await DetalleDiagnosticos.findAll({
-      where: { atencion_emergencia_id: atencionId }
+    const diagnosticos = await DetalleDiagnostico.findAll({
+      where: { atencionEmergenciaId: atencionId }
     });
 
-    const hayCodigoST = diagnosticos.some(d => esCodigoST(d.codigo_cie10));
-    const tieneCausaExterna = diagnosticos.some(d => esCausaExternaRango(d.codigo_cie10));
+    const hayCodigoST = diagnosticos.some(d => esCodigoST(d.codigoCIE10));
+    const tieneCausaExterna = diagnosticos.some(d => esCausaExternaRango(d.codigoCIE10));
     const causaExternaOk = !hayCodigoST || tieneCausaExterna;
     const motivoCausaExterna = !causaExternaOk
       ? 'Existe código S o T (trauma). Debe agregar al menos un diagnóstico de causa externa (V00-V99, W00-X59, X60-Y09, Y35-Y84).'
@@ -290,12 +294,9 @@ exports.validarFirma = async (req, res) => {
 
     // Verificar si hay al menos un diagnóstico DEFINITIVO (excepto códigos Z)
     const tieneDefinitivo = diagnosticos.some(d => {
-      const esZ = esCodigoZ(d.codigo_cie10);
-      return d.tipo_diagnostico === 'DEFINITIVO' && !esZ;
+      const esZ = esCodigoZ(d.codigoCIE10);
+      return d.tipoDiagnostico === 'DEFINITIVO' && !esZ;
     });
-
-    // Secciones H/I y Sección J (Obstetricia / MEF)
-    const EXAMEN_FISICO_REGIONAL_KEYS = ['estado_general', 'piel_faneras', 'cabeza', 'ojos', 'oidos', 'nariz', 'boca', 'orofaringe', 'cuello', 'axilas_mamas', 'torax', 'abdomen', 'columna_vertebral', 'miembros_superiores', 'miembros_inferiores'];
 
     const atencion = await AtencionEmergencia.findByPk(atencionId, {
       attributes: ['antecedentesPatologicos', 'tipoAccidenteViolenciaIntoxicacion', 'observacionesAccidente', 'examenFisico', 'examenFisicoTraumaCritico', 'embarazoParto'],
@@ -307,6 +308,10 @@ exports.validarFirma = async (req, res) => {
         include: [{ model: CatSexos, as: 'Sexo', attributes: ['nombre'], required: false }]
       }]
     });
+
+    // Secciones H/I y Sección J (Obstetricia / MEF)
+    const EXAMEN_FISICO_REGIONAL_KEYS = ['estado_general', 'piel_faneras', 'cabeza', 'ojos', 'oidos', 'nariz', 'boca', 'orofaringe', 'cuello', 'axilas_mamas', 'torax', 'abdomen', 'columna_vertebral', 'miembros_superiores', 'miembros_inferiores'];
+
     let antecedentesOk = true;
     let motivoAntecedentes = null;
     if (atencion && atencion.antecedentesPatologicos) {
@@ -323,7 +328,7 @@ exports.validarFirma = async (req, res) => {
       }
     }
 
-    // Previsión 094: si hay violencia, Observaciones Sección D obligatorias (mín. 100 caracteres)
+    // Previsión 094
     let violenciaOk = true;
     let motivoViolencia = null;
     if (atencion && atencion.tipoAccidenteViolenciaIntoxicacion) {
@@ -349,7 +354,7 @@ exports.validarFirma = async (req, res) => {
       }
     }
 
-    // Secciones H e I: al menos una con contenido (no ambos vacíos)
+    // Secciones H e I
     let examenFisicoOk = true;
     let motivoExamenFisico = null;
     if (atencion) {
@@ -359,6 +364,8 @@ exports.validarFirma = async (req, res) => {
       } catch {
         ef = {};
       }
+      if (!ef || typeof ef !== 'object') ef = {};
+
       const hConContenido = EXAMEN_FISICO_REGIONAL_KEYS.some(k => {
         const desc = (ef[k] || '').toString().trim();
         const noNormal = ef[`${k}_normal`] === false;
@@ -371,7 +378,7 @@ exports.validarFirma = async (req, res) => {
       }
     }
 
-    // Sección J (Obstetricia): si es mujer en edad fértil (10–49 años), debe tener estado de gestación definido
+    // Sección J (Obstetricia)
     let obstetriciaOk = true;
     let motivoObstetricia = null;
     if (atencion && atencion.Paciente) {

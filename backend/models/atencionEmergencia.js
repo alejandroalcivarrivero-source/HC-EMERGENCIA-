@@ -153,6 +153,14 @@ const AtencionEmergencia = sequelize.define('AtencionEmergencia', {
     type: DataTypes.STRING,
     allowNull: true
   },
+  fecha_fallecimiento: {
+    type: DataTypes.DATEONLY,
+    allowNull: true
+  },
+  hora_fallecimiento: {
+    type: DataTypes.STRING(5),
+    allowNull: true
+  },
   // Campos adicionales para gestión de firma y responsabilidad
   estadoFirma: {
     type: DataTypes.ENUM('BORRADOR', 'PENDIENTE_FIRMA', 'FINALIZADO_FIRMADO'),
@@ -192,7 +200,7 @@ const AtencionEmergencia = sequelize.define('AtencionEmergencia', {
 AtencionEmergencia.hasOne(TemporalGuardado, { foreignKey: 'idAtencion', as: 'borrador' });
 TemporalGuardado.belongsTo(AtencionEmergencia, { foreignKey: 'idAtencion' });
 
-AtencionEmergencia.hasMany(DetalleDiagnostico, { foreignKey: 'atencion_emergencia_id', as: 'diagnosticos' });
-DetalleDiagnostico.belongsTo(AtencionEmergencia, { foreignKey: 'atencion_emergencia_id' });
+// AtencionEmergencia.hasMany(DetalleDiagnostico, { foreignKey: 'atencion_emergencia_id', as: 'diagnosticos' });
+// DetalleDiagnostico.belongsTo(AtencionEmergencia, { foreignKey: 'atencion_emergencia_id' });
 
 module.exports = AtencionEmergencia;

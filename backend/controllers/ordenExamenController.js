@@ -25,10 +25,15 @@ exports.createOrdenExamen = async (req, res) => {
       return res.status(401).json({ message: 'Firma electrónica inválida.' });
     }
 
+    // Generar correlativo: LAB-[admisionId]-[count+1]
+    const count = await OrdenExamen.count({ where: { admisionId } });
+    const correlativo = `LAB-${admisionId}-${count + 1}`;
+
     const ordenExamen = await OrdenExamen.create({
       admisionId,
       usuarioId,
       tipoExamen,
+      correlativo,
       observaciones,
       firmaElectronica: 'VALIDADA' // O un hash de la firma real si se implementa un sistema más robusto
     });

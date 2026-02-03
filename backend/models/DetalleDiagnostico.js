@@ -8,41 +8,54 @@ const DetalleDiagnostico = sequelize.define('DetalleDiagnostico', {
     primaryKey: true,
     autoIncrement: true
   },
-  atencion_emergencia_id: {
+  atencionEmergenciaId: {
     type: DataTypes.INTEGER,
     allowNull: false,
+    field: 'atencion_emergencia_id',
     references: {
       model: AtencionEmergencia,
       key: 'id'
     }
   },
-  codigo_cie10: {
+  codigoCIE10: {
     type: DataTypes.STRING(10),
-    allowNull: false
+    allowNull: false,
+    field: 'codigo_cie10'
   },
-  tipo_diagnostico: {
+  tipoDiagnostico: {
     type: DataTypes.ENUM('PRESUNTIVO', 'DEFINITIVO', 'NO APLICA', 'ESTADISTICO'),
     allowNull: false,
-    defaultValue: 'PRESUNTIVO'
+    defaultValue: 'PRESUNTIVO',
+    field: 'tipo_diagnostico'
   },
   condicion: {
-    type: DataTypes.ENUM('Presuntivo', 'Definitivo Inicial', 'Definitivo Inicial por Laboratorio', 'CAUSA EXTERNA', 'NO APLICA'),
+    type: DataTypes.ENUM('Presuntivo', 'Definitivo Inicial', 'Definitivo Inicial por Laboratorio', 'CAUSA EXTERNA', 'NO APLICA', 'PRINCIPAL'),
     allowNull: false,
     defaultValue: 'Presuntivo'
   },
-  padre_id: {
+  descripcion: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  padreId: {
     type: DataTypes.INTEGER,
     allowNull: true,
-    // La referencia es al nombre de la tabla para evitar problemas de dependencia circular
+    field: 'padre_id',
     references: {
       model: 'DETALLE_DIAGNOSTICOS',
       key: 'id'
     }
   },
-  es_causa_externa: {
+  esCausaExterna: {
     type: DataTypes.BOOLEAN,
     allowNull: false,
-    defaultValue: false
+    defaultValue: false,
+    field: 'es_causa_externa'
+  },
+  usuarioId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    field: 'usuario_id'
   }
 }, {
   timestamps: true,
@@ -50,8 +63,7 @@ const DetalleDiagnostico = sequelize.define('DetalleDiagnostico', {
 });
 
 // Definición de la relación de auto-referencia para Causa Externa
-// Esto se hace explícitamente porque la tabla se auto-referencia
-DetalleDiagnostico.belongsTo(DetalleDiagnostico, { as: 'CausaExternaPadre', foreignKey: 'padre_id', onDelete: 'SET NULL' });
-DetalleDiagnostico.hasMany(DetalleDiagnostico, { as: 'CausasExternasHijas', foreignKey: 'padre_id', onDelete: 'SET NULL' });
+DetalleDiagnostico.belongsTo(DetalleDiagnostico, { as: 'CausaExternaPadre', foreignKey: 'padreId', onDelete: 'SET NULL' });
+DetalleDiagnostico.hasMany(DetalleDiagnostico, { as: 'CausasExternasHijas', foreignKey: 'padreId', onDelete: 'SET NULL' });
 
 module.exports = DetalleDiagnostico;

@@ -109,17 +109,43 @@ async function cargarBorrador(req, res) {
 
 async function createAtencionEmergencia(req, res) {
     try {
-        const { fechaHora, paciente, medico, ...restOfBody } = req.body; // Capturar el resto del body
+        // Unificación de Naming y Prevención de notNull Violation
+        const {
+            pacienteId,
+            admisionId,
+            usuarioId,
+            fechaAtencion,
+            horaAtencion,
+            condicionLlegada,
+            ...restOfBody
+        } = req.body;
+
+        // Validaciones mínimas requeridas por el modelo
+        if (!pacienteId || !admisionId || !fechaAtencion || !horaAtencion || !condicionLlegada) {
+            return res.status(400).json({
+                message: 'Faltan campos obligatorios: pacienteId, admisionId, fechaAtencion, horaAtencion y condicionLlegada.'
+            });
+        }
+
         const dataToSave = {
-            ...restOfBody, // Incluir el resto del body directamente
-            fechaHora: handleFecha(fechaHora),
-            paciente: stringifyData(paciente),
-            medico: stringifyData(medico)
+            ...restOfBody,
+            pacienteId,
+            admisionId,
+            usuarioId: usuarioId || req.user?.id, // Fallback al usuario autenticado
+            fechaAtencion: handleFecha(fechaAtencion),
+            horaAtencion: (horaAtencion || '').substring(0, 5),
+            condicionLlegada: (condicionLlegada || '').toUpperCase()
         };
+
+        if (!dataToSave.usuarioId) {
+            return res.status(400).json({ message: 'El ID de médico/usuario es obligatorio.' });
+        }
+
         const atencion = await AtencionEmergencia.create(dataToSave);
         res.status(201).json(atencion);
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('Error al crear atención:', error);
+        res.status(500).json({ error: error.message, message: 'Error interno al crear la atención.' });
     }
 }
 
@@ -156,22 +182,37 @@ async function getAtencionEmergenciaByAdmision(req, res) {
 async function updateAtencionEmergencia(req, res) {
     try {
         const { id } = req.params;
-        const { fechaHora, paciente, medico, ...restOfBody } = req.body; // Capturar el resto del body
+        const {
+            pacienteId,
+            admisionId,
+            usuarioId,
+            fechaAtencion,
+            horaAtencion,
+            ...restOfBody
+        } = req.body;
         
         const dataToUpdate = {
-            ...restOfBody, // Incluir el resto del body directamente
-            fechaHora: handleFecha(fechaHora),
-            paciente: stringifyData(paciente),
-            medico: stringifyData(medico)
+            ...restOfBody,
+            ...(pacienteId && { pacienteId }),
+            ...(admisionId && { admisionId }),
+            ...(usuarioId && { usuarioId }),
+            ...(fechaAtencion && { fechaAtencion: handleFecha(fechaAtencion) }),
+            ...(horaAtencion && { horaAtencion: (horaAtencion || '').substring(0, 5) })
         };
 
-        await AtencionEmergencia.update(
+        const [updatedRows] = await AtencionEmergencia.update(
             dataToUpdate,
             { where: { id } }
         );
-        res.status(204).send();
+
+        if (updatedRows === 0) {
+            return res.status(404).json({ message: 'Atención no encontrada para actualizar.' });
+        }
+
+        res.status(200).json({ message: 'Atención actualizada exitosamente.' });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('Error al actualizar atención:', error);
+        res.status(500).json({ error: error.message, message: 'Error interno al actualizar la atención.' });
     }
 }
 

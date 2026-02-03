@@ -8,39 +8,7 @@ const path = require('path');
 const fs = require('fs');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
-const { Sequelize } = require('sequelize');
-
-const DB_CONFIG = {
-  TRABAJO: {
-    host: process.env.DB_HOST_TRABAJO || '172.16.1.248',
-    port: process.env.DB_PORT || '3306',
-    user: process.env.DB_USER || 'TICS',
-    password: process.env.DB_PASSWORD || 'TICS20141',
-    database: process.env.DB_NAME || 'EMERGENCIA',
-    dialect: 'mariadb'
-  },
-  CASA: {
-    host: process.env.DB_HOST_CASA || '127.0.0.1',
-    port: process.env.DB_PORT_CASA || '3308',
-    user: process.env.DB_USER || 'TICS',
-    password: process.env.DB_PASSWORD_CASA || process.env.DB_PASSWORD || 'TICS20141',
-    database: process.env.DB_NAME || 'EMERGENCIA',
-    dialect: 'mariadb'
-  }
-};
-
-function createConn() {
-  const mode = process.env.DB_MODE || 'AUTO';
-  const config = mode === 'CASA' ? DB_CONFIG.CASA : DB_CONFIG.TRABAJO;
-  return new Sequelize(config.database, config.user, config.password, {
-    host: config.host,
-    port: config.port,
-    dialect: 'mariadb',
-    logging: false
-  });
-}
-
-const sequelize = createConn();
+const sequelize = require('../config/database');
 
 function stripComments(sql) {
   return sql
@@ -91,7 +59,11 @@ async function run() {
   const scripts = process.argv.slice(2).length ? process.argv.slice(2) : defaultScripts;
 
   try {
-    await sequelize.authenticate();
+    if (sequelize.connectWithFallback) {
+        await sequelize.connectWithFallback();
+    } else {
+        await sequelize.authenticate();
+    }
     console.log('✅ Conexión a la BD establecida.\n');
   } catch (e) {
     console.error('❌ No se pudo conectar a la BD:', e.message);

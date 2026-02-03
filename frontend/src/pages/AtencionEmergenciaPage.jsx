@@ -9,6 +9,7 @@ import ReasignarPacienteModal from '../components/ReasignarPacienteModal';
 import FirmaElectronica from '../components/FirmaElectronica';
 import { CheckCircle2 } from 'lucide-react';
 import { useSidebar } from '../contexts/SidebarContext';
+import CentroOrdenes from '../components/CentroOrdenes';
 
 const API_BASE = 'http://localhost:3001/api'; // Definir API_BASE aquí
 
@@ -279,6 +280,16 @@ const AtencionEmergenciaPage = () => {
       >
         {/* Layout de una sola columna expandida */}
         <div className="max-w-7xl mx-auto space-y-6">
+          {/* Centro de Órdenes */}
+          {atencion && (
+            <CentroOrdenes
+              admisionId={admisionId}
+              pacienteId={paciente?.id}
+              atencionId={atencion?.id}
+              showReferencia={formData?.condicionEgreso === 'REFERIDO'}
+            />
+          )}
+
           {/* Formulario de Atención */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
             <AtencionEmergenciaForm

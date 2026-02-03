@@ -25,10 +25,15 @@ exports.createOrdenImagen = async (req, res) => {
       return res.status(401).json({ message: 'Firma electrónica inválida.' });
     }
 
+    // Generar correlativo: IMG-[admisionId]-[count+1]
+    const count = await OrdenImagen.count({ where: { admisionId } });
+    const correlativo = `IMG-${admisionId}-${count + 1}`;
+
     const ordenImagen = await OrdenImagen.create({
       admisionId,
       usuarioId,
       tipoImagen,
+      correlativo,
       observaciones,
       firmaElectronica: 'VALIDADA' // O un hash de la firma real si se implementa un sistema más robusto
     });

@@ -14,7 +14,7 @@ const sequelize = new Sequelize('EMERGENCIA', 'TICS', 'TICS20141', {
 });
 
 const Atencion = require(path.join(__dirname, '../models/atencionEmergencia'));
-const Detalle = require(path.join(__dirname, '../models/detalleDiagnosticos'));
+const Detalle = require(path.join(__dirname, '../models/DetalleDiagnostico'));
 
 async function normalizar() {
     try {
@@ -37,15 +37,16 @@ async function normalizar() {
                 for (const d of lista) {
                     const cod = (d.codigo || '').replace(/\./g, '').trim().toUpperCase();
                     if (!cod) continue;
-                    const esExterna = /^[VWXY]/.test(cod) ? 1 : 0;
+                    const esExterna = /^[VWXY]/.test(cod);
 
                     await Detalle.create({
-                        atencion_emergencia_id: atencion.id,
-                        codigo_cie10: cod,
-                        tipo_diagnostico: tipo,
+                        atencionEmergenciaId: atencion.id,
+                        codigoCIE10: cod,
+                        tipoDiagnostico: tipo,
                         descripcion: d.descripcion || d.nombre || 'Sin descripción',
-                        es_causa_externa: esExterna,
-                        usuario_id: 1 
+                        esCausaExterna: esExterna,
+                        condicion: tipo === 'DEFINITIVO' ? 'Definitivo Inicial' : 'Presuntivo',
+                        usuarioId: 1 
                     });
                     total++;
                 }

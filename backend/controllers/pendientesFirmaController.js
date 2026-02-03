@@ -118,15 +118,45 @@ exports.getDatosPrellenado = async (req, res) => {
     const { admisionId } = req.params;
 
     const admision = await Admision.findByPk(admisionId, {
-      include: [{
-        model: CatMotivoConsultaSintomas,
-        as: 'MotivoConsultaSintoma',
-        attributes: ['Codigo', 'Motivo_Consulta_Sintoma', 'Categoria']
-      }]
+      include: [
+        {
+          model: CatMotivoConsultaSintomas,
+          as: 'MotivoConsultaSintoma',
+          attributes: ['Codigo', 'Motivo_Consulta_Sintoma', 'Categoria']
+        },
+        {
+          model: Paciente,
+          as: 'Paciente',
+          attributes: ['id', 'primer_nombre', 'segundo_nombre', 'primer_apellido', 'segundo_apellido', 'numero_identificacion', 'fecha_nacimiento']
+        }
+      ]
     });
 
     if (!admision) {
       return res.status(404).json({ message: 'Admisión no encontrada.' });
+    }
+
+    // Obtener atención para buscar el diagnóstico principal
+    const atencion = await AtencionEmergencia.findOne({ where: { admisionId } });
+    let diagnosticoPrincipal = null;
+
+    if (atencion) {
+      const DetalleDiagnostico = require('../models/DetalleDiagnostico');
+      const CatCie10 = require('../models/catCie10');
+      
+      const diag = await DetalleDiagnostico.findOne({
+        where: { atencionEmergenciaId: atencion.id, tipo: 'DEFINITIVO' }, // Priorizar definitivo
+        include: [{ model: CatCie10, as: 'CIE10' }],
+        order: [['createdAt', 'DESC']]
+      }) || await DetalleDiagnostico.findOne({
+        where: { atencionEmergenciaId: atencion.id, tipo: 'PRESUNTIVO' },
+        include: [{ model: CatCie10, as: 'CIE10' }],
+        order: [['createdAt', 'DESC']]
+      });
+
+      if (diag && diag.CIE10) {
+        diagnosticoPrincipal = `${diag.codigoCIE10} - ${diag.CIE10.descripcion}`;
+      }
     }
 
     // Obtener historial de signos vitales
@@ -137,12 +167,14 @@ exports.getDatosPrellenado = async (req, res) => {
       limit: 10 // Últimos 10 registros
     });
 
-    const motivoConsulta = admision.MotivoConsultaSintoma 
-      ? admision.MotivoConsultaSintoma.Motivo_Consulta_Sintoma 
+    const motivoConsulta = admision.MotivoConsultaSintoma
+      ? admision.MotivoConsultaSintoma.Motivo_Consulta_Sintoma
       : null;
 
     res.status(200).json({
       motivoConsulta,
+      paciente: admision.Paciente,
+      diagnosticoPrincipal,
       signosVitales: signosVitales.map(sv => sv.toJSON())
     });
   } catch (error) {

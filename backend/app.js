@@ -78,6 +78,7 @@ const ordenImagenRoutes = require('./routes/ordenImagen'); // Importar rutas de 
 const admisionesRoutes = require('./routes/admisiones'); // Nuevo import para las rutas de admisiones
 const catMotivoConsultaSintomasRoutes = require('./routes/catMotivoConsultaSintomasRoutes'); // Nueva ruta
 const reportesRoutes = require('./routes/reportes'); // Nuevo import para las rutas de reportes
+const referenciaRoutes = require('./routes/referencia'); // Nuevo import para las rutas de referencia (053)
 
 app.use('/usuarios', usuariosRouter);
 console.log('Rutas de usuarios registradas en /usuarios'); // Log para depuración
@@ -97,6 +98,7 @@ app.use('/api/ordenes-imagen', ordenImagenRoutes); // Usar rutas de órdenes de 
 app.use('/api/admisiones', admisionesRoutes); // Usar las nuevas rutas de admisiones
 app.use('/api/motivos-consulta', catMotivoConsultaSintomasRoutes); // Nueva ruta
 app.use('/api/reportes', reportesRoutes); // Usar las rutas de reportes
+app.use('/api/referencias-053', referenciaRoutes); // Usar las rutas de referencias (053)
 app.use('/api/multimedia-tv', require('./routes/multimediaTv')); // Rutas de multimedia para TV
 app.use('/api/configuracion-audio', require('./routes/configuracionAudio')); // Rutas de configuración de audio
 app.use('/api/pendientes-firma', require('./routes/pendientesFirma')); // Rutas de pendientes de firma

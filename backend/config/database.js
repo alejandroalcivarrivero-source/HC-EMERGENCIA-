@@ -113,10 +113,10 @@ async function connectWithFallback() {
     // Modo AUTO: Intenta primero TRABAJO, luego CASA
     console.log('🔍 Modo AUTO: Detectando mejor conexión...');
     
-    // Intentar primero con TRABAJO
-    let config = DB_CONFIG.TRABAJO;
+    // Intentar primero con TRABAJO con un timeout corto para fallar rápido si no estamos en la red
+    let config = { ...DB_CONFIG.TRABAJO, connectTimeout: 3000 }; // 3 segundos para detección rápida
     let db = createSequelizeInstance(config);
-    console.log(`🔌 Intentando conectar a BD TRABAJO: ${config.host}:${config.port}`);
+    console.log(`🔌 Intentando conectar a BD TRABAJO (Auto-Detect): ${config.host}:${config.port}`);
     
     try {
       await db.authenticate();

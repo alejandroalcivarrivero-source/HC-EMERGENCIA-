@@ -25,9 +25,14 @@ exports.createRecetaMedica = async (req, res) => {
       return res.status(401).json({ message: 'Firma electrónica inválida.' });
     }
 
+    // Generar correlativo: REC-[admisionId]-[count+1]
+    const count = await RecetaMedica.count({ where: { admisionId } });
+    const correlativo = `REC-${admisionId}-${count + 1}`;
+
     const recetaMedica = await RecetaMedica.create({
       admisionId,
       usuarioId,
+      correlativo,
       medicamentos: JSON.stringify(medicamentos), // Guardar como JSON string
       observaciones,
       firmaElectronica: 'VALIDADA' // O un hash de la firma real si se implementa un sistema más robusto

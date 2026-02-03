@@ -1,5 +1,5 @@
 const AtencionEmergencia = require("../models/atencionEmergencia");
-const DetalleDiagnosticos = require("../models/detalleDiagnosticos");
+const DetalleDiagnostico = require("../models/DetalleDiagnostico");
 const CertificadoFirma = require("../models/certificadoFirma");
 const TemporalGuardado = require("../models/temporal_guardado"); // Nueva importación
 const Paciente = require("../models/pacientes");
@@ -15,8 +15,8 @@ const { esCodigoST, esCausaExternaRango } = require("../utils/validacionesCIE10"
  * Debe tener al menos un diagnóstico DEFINITIVO (excepto códigos Z)
  */
 exports.validarPuedeFirmar = async (atencionId) => { // Exportar directamente
-  const diagnosticos = await DetalleDiagnosticos.findAll({
-    where: { atencion_emergencia_id: atencionId }, // Usar atencion_emergencia_id
+  const diagnosticos = await DetalleDiagnostico.findAll({
+    where: { atencionEmergenciaId: atencionId }, // Usar atencionEmergenciaId
   });
 
   if (diagnosticos.length === 0) {
@@ -25,8 +25,8 @@ exports.validarPuedeFirmar = async (atencionId) => { // Exportar directamente
 
   // Verificar si hay al menos un diagnóstico DEFINITIVO o código Z con NO APLICA
   const tieneDefinitivo = diagnosticos.some((d) => {
-    const esCodigoZ = String(d.codigo_cie10).toUpperCase().startsWith("Z"); // Corregido a codigo_cie10
-    return d.tipo_diagnostico === "DEFINITIVO" || (esCodigoZ && d.condicion === "NO APLICA"); // Corregido a tipo_diagnostico y condicion
+    const esCodigoZ = String(d.codigoCIE10).toUpperCase().startsWith("Z"); // Corregido a codigoCIE10
+    return d.tipoDiagnostico === "DEFINITIVO" || (esCodigoZ && d.condicion === "NO APLICA"); // Corregido a tipoDiagnostico y condicion
   });
 
   if (!tieneDefinitivo) {
@@ -37,8 +37,8 @@ exports.validarPuedeFirmar = async (atencionId) => { // Exportar directamente
   }
 
   // Validación de Trauma (S o T) requiere Causa Externa (V-Y)
-  const hayCodigoST = diagnosticos.some(d => esCodigoST(d.codigo_cie10));
-  const tieneCausaExterna = diagnosticos.some(d => esCausaExternaRango(d.codigo_cie10));
+  const hayCodigoST = diagnosticos.some(d => esCodigoST(d.codigoCIE10));
+  const tieneCausaExterna = diagnosticos.some(d => esCausaExternaRango(d.codigoCIE10));
 
   if (hayCodigoST && !tieneCausaExterna) {
     return {
@@ -160,8 +160,8 @@ async function generarPDFFormulario008(atencionId, isPreliminar = false, rawForm
 
     // Cargar diagnósticos si no vinieron con rawFormData o si atencionId es diferente
     if (diagnosticos.length === 0 && atencionId) {
-      diagnosticos = await DetalleDiagnosticos.findAll({
-        where: { atencion_emergencia_id: atencionId }, // Usar atencion_emergencia_id
+      diagnosticos = await DetalleDiagnostico.findAll({
+        where: { atencionEmergenciaId: atencionId }, // Usar atencionEmergenciaId
         include: [
           {
             model: require("../models/catCie10"),
@@ -169,9 +169,9 @@ async function generarPDFFormulario008(atencionId, isPreliminar = false, rawForm
             attributes: ["codigo", "descripcion"],
           },
           {
-            model: DetalleDiagnosticos,
+            model: DetalleDiagnostico,
             as: "CausaExternaPadre",
-            attributes: ["id", "codigo_cie10", "tipo_diagnostico", "condicion", "es_causa_externa"],
+            attributes: ["id", "codigoCIE10", "tipoDiagnostico", "condicion", "esCausaExterna"],
             required: false,
           },
         ],
@@ -238,25 +238,25 @@ async function generarPDFFormulario008(atencionId, isPreliminar = false, rawForm
     // Excluir: códigos Z (NO APLICA), causas externas (V–Y) y códigos con padre_id.
     const esCodigoZPdf = (cod) => String(cod || "").toUpperCase().startsWith("Z");
     const esCausaExternaPdf = (d) =>
-      /^[VWXY]/.test(String(d.codigo_cie10 || "").toUpperCase()) || d.padre_id != null; // Corregido a snake_case
+      /^[VWXY]/.test(String(d.codigoCIE10 || "").toUpperCase()) || d.padreId != null; // Corregido a camelCase
     const morbilidad = diagnosticos.filter(
-      (d) => !esCodigoZPdf(d.codigo_cie10) && !esCausaExternaPdf(d) // Corregido a snake_case
+      (d) => !esCodigoZPdf(d.codigoCIE10) && !esCausaExternaPdf(d) // Corregido a camelCase
     );
     const presuntivosPdf = morbilidad
-      .filter((d) => d.tipo_diagnostico === "PRESUNTIVO")
-      .slice(0, 3); // Corregido a snake_case
+      .filter((d) => d.tipoDiagnostico === "PRESUNTIVO")
+      .slice(0, 3); // Corregido a camelCase
     const definitivosPdf = morbilidad
-      .filter((d) => d.tipo_diagnostico === "DEFINITIVO")
-      .slice(0, 3); // Corregido a snake_case
+      .filter((d) => d.tipoDiagnostico === "DEFINITIVO")
+      .slice(0, 3); // Corregido a camelCase
     const diagnosticosParaPdf = [...presuntivosPdf, ...definitivosPdf];
 
     doc.fontSize(12).text("DIAGNÓSTICOS", { underline: true });
     doc.fontSize(10);
     diagnosticosParaPdf.forEach((diag, index) => {
-      const cod = diag.CIE10?.codigo || diag.codigo_cie10 || ""; // Corregido a snake_case
+      const cod = diag.CIE10?.codigo || diag.codigoCIE10 || ""; // Corregido a camelCase
       const desc = diag.CIE10?.descripcion || diag.descripcion || "";
       doc.text(`${index + 1}. CIE-10: ${cod} - ${desc}`);
-      doc.text(`   Tipo: ${diag.tipo_diagnostico}, Condición: ${diag.condicion}`); // Añadida condición
+      doc.text(`   Tipo: ${diag.tipoDiagnostico}, Condición: ${diag.condicion}`); // Añadida condición
       if (diag.descripcion && diag.descripcion !== desc) {
         doc.text(`   Observaciones: ${diag.descripcion}`);
       }
@@ -602,16 +602,16 @@ exports.getPDFPreliminar = async (req, res) => {
 
         let effectiveAtencionIdForDiagnosticos = atencionPrincipal?.id || atencionIdParaBorrador;
 
-        diagnosticosFromBorrador = await DetalleDiagnosticos.findAll({
-          where: { atencion_emergencia_id: effectiveAtencionIdForDiagnosticos },
+        diagnosticosFromBorrador = await DetalleDiagnostico.findAll({
+          where: { atencionEmergenciaId: effectiveAtencionIdForDiagnosticos },
           include: [{
             model: require('../models/catCie10'),
             as: 'CIE10',
             attributes: ['codigo', 'descripcion']
           }, {
-            model: DetalleDiagnosticos,
+            model: DetalleDiagnostico,
             as: 'CausaExternaPadre',
-            attributes: ['id', 'codigo_cie10', 'tipo_diagnostico', 'condicion', 'es_causa_externa'],
+            attributes: ['id', 'codigoCIE10', 'tipoDiagnostico', 'condicion', 'esCausaExterna'],
             required: false
           }],
           order: [['id', 'ASC']]
