@@ -33,9 +33,14 @@ function createSequelizeInstance(config) {
       dialect: 'mariadb',
       logging: false,
       freezeTableName: true,
+      retry: {
+        max: 3,
+        match: [/ETIMEDOUT/, /ECONNREFUSED/, /ConnectionManager/]
+      },
       pool: {
-        acquire: 30000,
-        idle: 10000,
+        acquire: 60000,
+        idle: 30000,
+        evict: 2000,
         max: 5,
         min: 0
       },

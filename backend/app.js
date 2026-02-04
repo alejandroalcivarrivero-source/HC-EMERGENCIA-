@@ -120,8 +120,11 @@ httpServer.listen(PORT, () => {
   console.log(`🚀 Servidor backend escuchando en http://localhost:${PORT}`);
   console.log(`📡 Socket.io habilitado para tiempo real en ws://localhost:${PORT}`);
   
-  // Intentar conectar a la base de datos después de que el servidor esté escuchando
-  // Usar la función de fallback automático
+  // Independencia de Inicio: La conexión a BD se realiza de forma asíncrona después de iniciar el servidor
+  
+  console.log('🔍 Intentando conexión inicial con Timeout de 2s para fallback rápido...');
+  
+  // Flujo de Fallback: sequelize.connectWithFallback se ejecuta en el callback del listen
   if (sequelize.connectWithFallback) {
     sequelize.connectWithFallback()
       .then(async () => {
