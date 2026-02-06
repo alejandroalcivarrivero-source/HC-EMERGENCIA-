@@ -6,9 +6,10 @@ const Parroquias = require('./parroquia');
 const DatosAdicionalesPaciente = require('./datos_adicionales_paciente');
 const ContactoEmergencia = require('./contactos_emergencia');
 const Representante = require('./representantes');
-const Admision = require('./admisiones'); // Ya está en singular, no necesita cambio
+const Admision = require('./admisiones'); // Usar el modelo admisiones que es el más completo
 const Parto = require('./partos');
 const SignosVitales = require('./signos_vitales'); // Nuevo import
+const Form008 = require('./Form008'); // Importar el nuevo modelo Form008 (Satélite Triage/Médico)
 // const ProcedimientoEmergencia = require('./procedimientoEmergencia'); // DEPRECADO - Ya no se usa, se reemplazó por CumplimientoProcedimientos
 const AtencionEmergencia = require('./atencionEmergencia'); // Nuevo import
 const AtencionPacienteEstado = require('./atencionPacienteEstado'); // Nuevo import
@@ -65,6 +66,10 @@ function initAssociations() {
   Pacientes.hasMany(Admision, { foreignKey: 'paciente_id', as: 'Admisiones' }); // El alias 'Admisiones' se mantiene para la relación hasMany
   Admision.belongsTo(Pacientes, { foreignKey: 'paciente_id', as: 'Paciente' }); // Añadir alias explícito
 
+  // Asociaciones adicionales requeridas para evitar error 500 - COMENTADO PARA EVITAR DUPLICADOS
+  // Admision.belongsTo(Pacientes, { foreignKey: 'paciente_id' });
+  // Pacientes.hasMany(Admision, { foreignKey: 'paciente_id' });
+
   Pacientes.hasMany(Parto, { foreignKey: 'paciente_id', as: 'Partos' });
   Parto.belongsTo(Pacientes, { foreignKey: 'paciente_id' });
 
@@ -102,12 +107,17 @@ function initAssociations() {
   Admision.belongsTo(FuenteInformacion, { foreignKey: 'fuenteInformacionId', as: 'FuenteInformacion' });
   Admision.belongsTo(CatTriaje, { foreignKey: 'triajePreliminarId', as: 'TriajePreliminar' });
   Admision.belongsTo(CatTriaje, { foreignKey: 'triajeDefinitivoId', as: 'TriajeDefinitivo' });
+  // Admision.belongsTo(CatMotivoConsultaSintomas, { foreignKey: 'motivo_consulta_sintoma_id', as: 'MotivoConsultaSintoma', targetKey: 'Codigo' }); // COMENTADO: Ya definido en admisiones.js
   // Admision.belongsTo(Usuario, { foreignKey: 'usuarioAdmisionId', as: 'UsuarioAdmision' }); // Esta línea ya no es necesaria aquí, se define en admisiones.js
 
   // Asociaciones para SignosVitales
   Admision.hasMany(SignosVitales, { foreignKey: 'admisionId', as: 'DatosSignosVitales', tableName: 'SIGNOS_VITALES' });
   SignosVitales.belongsTo(Admision, { foreignKey: 'admisionId', as: 'AdmisionSignosVitales', tableName: 'SIGNOS_VITALES' }); // Añadir alias explícito
   SignosVitales.belongsTo(Usuario, { foreignKey: 'usuarioId', as: 'UsuarioRegistro' }); // Nueva asociación para el usuario que registra los signos vitales
+
+  // Asociaciones para Form008 (Satélite Triage/Médico)
+  Admision.hasOne(Form008, { foreignKey: 'admisionId', as: 'Formulario008' });
+  Form008.belongsTo(Admision, { foreignKey: 'admisionId', as: 'AdmisionForm008' });
 
   // Asociaciones para ProcedimientoEmergencia (DEPRECADO - Ya no se usa, se reemplazó por CumplimientoProcedimientos)
   // ProcedimientoEmergencia.belongsTo(Pacientes, { foreignKey: 'pacienteId', as: 'Paciente' });
@@ -150,6 +160,7 @@ function initAssociations() {
 
   console.log('Asociaciones inicializadas. Modelos y sus alias:');
   console.log('Admision:', Admision.associations);
+  console.log('Form008:', Form008.associations); // Nuevo modelo
   // console.log('ProcedimientoEmergencia:', ProcedimientoEmergencia.associations); // DEPRECADO
   console.log('CumplimientoProcedimientos:', CumplimientoProcedimientos.associations);
   console.log('AtencionEmergencia:', AtencionEmergencia.associations);

@@ -506,15 +506,19 @@ exports.crearRegistroAdmision = async (req, res) => {
           transaction: t
         });
         if (!motivoConsultaSintomaObj) {
-          throw new Error(`Motivo de Consulta y Síntomas '${motivoConsulta}' no encontrado.`);
+          console.warn(`Motivo de Consulta y Síntomas '${motivoConsulta}' no encontrado. Se guardará como texto libre.`);
         }
         
         // ESCALAMIENTO AUTOMÁTICO: Si el motivo tiene Codigo_Triaje = 1 (ROJO - RESUCITACIÓN)
-        if (motivoConsultaSintomaObj.Codigo_Triaje === 1) {
+        if (motivoConsultaSintomaObj && motivoConsultaSintomaObj.Codigo_Triaje === 1) {
           prioridadEnfermeria = 1;
           observacionEscalamientoAuto = `⚠️ ESCALAMIENTO AUTOMÁTICO: Motivo de consulta crítico - "${motivoConsultaSintomaObj.Motivo_Consulta_Sintoma}" (Categoría: ${motivoConsultaSintomaObj.Categoria}). Requiere valoración médica inmediata.`;
           console.log(`[crearRegistroAdmision] ⚠️ ESCALAMIENTO AUTOMÁTICO activado - Motivo: ${motivoConsultaSintomaObj.Motivo_Consulta_Sintoma}, Triaje ID: ${motivoConsultaSintomaObj.Codigo_Triaje}`);
         }
+      } else {
+         // Si no se encuentra en el catálogo, pero se envió texto, permitimos continuar
+         // (Opcional: podrías decidir si es error o no. Asumiremos que si no está en catálogo, solo guardamos el texto si el modelo lo soporta)
+         console.warn(`Motivo de Consulta '${motivoConsulta}' no encontrado en catálogo. Se guardará solo como texto si la columna existe.`);
       }
 
       console.log('IDs de catálogos obtenidos:'); // Log para depuración
@@ -948,8 +952,13 @@ exports.crearRegistroAdmision = async (req, res) => {
           triajePreliminarId: triajeAzul.id, // Asignar el ID del triaje "Azul" por defecto
           fecha_hora_ultima_alerta_triaje: null, // Asegurar que este campo se envíe como null si no hay valor
           motivo_consulta_sintoma_id: motivoConsultaSintomaObj ? motivoConsultaSintomaObj.Codigo : null, // Nuevo campo
-          prioridad_enfermeria: prioridadEnfermeria, // Escalamiento automático si triaje es ROJO
-          observacion_escalamiento: observacionEscalamientoAuto // Observación automática del escalamiento
+                  // motivo_consulta: motivoConsulta, // COMENTADO: La columna no existe en BD. Se usa solo motivo_consulta_sintoma_id
+                  prioridad_enfermeria: prioridadEnfermeria, // Escalamiento automático si triaje es ROJO
+          observacion_escalamiento: observacionEscalamientoAuto, // Observación automática del escalamiento
+          // fecha_creacion y fecha_actualizacion son manejados automaticamente por Sequelize si timestamps: true,
+          // pero en el modelo timestamps: false, asi que los manejamos nosotros o dejamos que la BD use default values
+          fecha_creacion: new Date(),
+          fecha_actualizacion: new Date()
       };
 
       // Validación explícita de campos requeridos antes de crear la Admision
@@ -1010,6 +1019,11 @@ exports.crearRegistroAdmision = async (req, res) => {
   } catch (error) {
     console.error('Error detallado al crear registro de admisión:', error.message); // Mensaje de error más detallado
     console.error('Stack trace:', error.stack); // Stack trace para depuración
+
+    if (error.name === 'SequelizeDatabaseError') {
+      console.error('Error de Base de Datos Sequelize (SQL):', error.parent);
+      console.error('Consulta SQL fallida:', error.sql);
+    }
 
     if (error.message.includes('El paciente tiene admisiones activas')) {
       return res.status(400).json({ message: error.message });
@@ -1380,7 +1394,7 @@ exports.obtenerAdmisionesActivas = async (req, res) => {
 
     let estadosExcluidosIds = [];
     const estadosFinalizados = await CatEstadoPaciente.findAll({
-      where: { nombre: ['ALTA_VOLUNTARIA', 'DADO_ALTA', 'FALLECIDO'] },
+      where: { nombre: ['ALTA_VOLUNTARIA', 'DADO_ALTA', 'FALLECIDO', 'EGRESADO'] },
       attributes: ['id']
     });
     estadosExcluidosIds = estadosFinalizados.map(estado => estado.id);
@@ -1499,6 +1513,7 @@ exports.obtenerAdmisionesActivas = async (req, res) => {
           model: Paciente,
           as: 'Paciente',
           attributes: ['id', 'numero_identificacion', 'primer_nombre', 'segundo_nombre', 'primer_apellido', 'segundo_apellido'],
+          include: [] // Aseguramos que no traiga nada anidado innecesario
         },
         {
           model: SignosVitales,
@@ -1708,7 +1723,7 @@ exports.obtenerAdmisionPorId = async (req, res) => {
       include: [
         {
           model: Paciente,
-          as: 'Paciente',
+          as: 'Paciente', // Descomentado para usar la asociación con alias
           attributes: ['id', 'numero_identificacion', 'primer_nombre', 'segundo_nombre', 'primer_apellido', 'segundo_apellido', 'fecha_nacimiento'],
         },
         {

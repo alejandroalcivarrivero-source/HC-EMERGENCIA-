@@ -145,11 +145,11 @@ exports.getDatosPrellenado = async (req, res) => {
       const CatCie10 = require('../models/catCie10');
       
       const diag = await DetalleDiagnostico.findOne({
-        where: { atencionEmergenciaId: atencion.id, tipo: 'DEFINITIVO' }, // Priorizar definitivo
+        where: { atencion_emergencia_id: atencion.id, tipo_diagnostico: 'DEFINITIVO' }, // Priorizar definitivo
         include: [{ model: CatCie10, as: 'CIE10' }],
         order: [['createdAt', 'DESC']]
       }) || await DetalleDiagnostico.findOne({
-        where: { atencionEmergenciaId: atencion.id, tipo: 'PRESUNTIVO' },
+        where: { atencion_emergencia_id: atencion.id, tipo_diagnostico: 'PRESUNTIVO' },
         include: [{ model: CatCie10, as: 'CIE10' }],
         order: [['createdAt', 'DESC']]
       });

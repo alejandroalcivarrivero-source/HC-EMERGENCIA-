@@ -105,6 +105,7 @@ app.use('/api/pendientes-firma', require('./routes/pendientesFirma')); // Rutas 
 app.use('/api/diagnosticos', require('./routes/diagnosticos')); // Rutas de diagnósticos CIE-10
 app.use('/api/reasignacion', require('./routes/reasignacion')); // Rutas de reasignación de pacientes
 app.use('/api/firma-electronica', require('./routes/firmaElectronica')); // Rutas de firma electrónica
+app.use('/api/bi', require('./routes/biRoutes')); // Rutas de Dashboard BI
 app.use('/api/verificar', require('./routes/verificarTabla')); // Ruta temporal para verificar estructura de tablas
 
 // Inicializar Socket.io ANTES de iniciar el servidor (para que esté listo cuando el servidor escuche)

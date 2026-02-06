@@ -66,6 +66,7 @@ const Admision = sequelize.define('Admision', { // Cambiar el nombre del modelo 
       key: 'id'
     }
   },
+  // estadoAtencion column does not exist in the database, removed from model
   fecha_hora_retiro: {
     type: DataTypes.DATE,
     allowNull: true, // Puede ser nulo si el paciente no se ha retirado
@@ -110,14 +111,27 @@ const Admision = sequelize.define('Admision', { // Cambiar el nombre del modelo 
     allowNull: true, // Permitir nulo si no siempre se requiere un motivo de consulta
     field: 'motivo_consulta_sintoma_id',
     references: {
-      model: 'CAT_MOTIVO_CONSULTA_SINTOMAS', // Referencia al nombre de la tabla
-      key: 'Codigo' // Referencia a la clave primaria 'Codigo'
+      model: CatMotivoConsultaSintomas,
+      key: 'Codigo'
     }
   },
+  // motivo_consulta column does not exist in the database, removed from model. Use motivo_consulta_sintoma_id relation.
   fecha_ultima_actividad: {
     type: DataTypes.DATE,
     allowNull: true, // Se actualizará cuando haya actividad
-    field: 'fecha_actualizacion' // Corregido para que coincida con el nombre de la columna en la base de datos
+    field: 'fecha_ultima_actividad'
+  },
+  fecha_creacion: {
+    type: DataTypes.DATE,
+    allowNull: false,
+    defaultValue: DataTypes.NOW,
+    field: 'fecha_creacion'
+  },
+  fecha_actualizacion: {
+    type: DataTypes.DATE,
+    allowNull: false,
+    defaultValue: DataTypes.NOW,
+    field: 'fecha_actualizacion'
   },
   prioridad_enfermeria: {
     type: DataTypes.TINYINT,
@@ -144,6 +158,12 @@ const Admision = sequelize.define('Admision', { // Cambiar el nombre del modelo 
     allowNull: true,
     field: 'observacion_cierre',
     comment: 'Observación al cerrar la admisión (alta voluntaria, inactividad, etc.)'
+  },
+  firmaDigitalHash: {
+    type: DataTypes.STRING(255),
+    allowNull: true,
+    field: 'firma_digital_hash',
+    comment: 'Hash de la firma digital de la atención'
   }
 }, {
   tableName: 'ADMISIONES', // Mantener el nombre de la tabla en plural
@@ -154,6 +174,6 @@ const Admision = sequelize.define('Admision', { // Cambiar el nombre del modelo 
 Admision.belongsTo(FuenteInformacion, { foreignKey: 'fuenteInformacionId' });
 Admision.belongsTo(Usuario, { foreignKey: 'usuarioAdmisionId', as: 'UsuarioAdmision' });
 Admision.belongsTo(CatEstadoPaciente, { foreignKey: 'estado_paciente_id', as: 'EstadoPaciente' });
-Admision.belongsTo(CatMotivoConsultaSintomas, { foreignKey: 'motivo_consulta_sintoma_id', as: 'MotivoConsultaSintoma', targetKey: 'Codigo' }); // Nueva asociación con targetKey
+Admision.belongsTo(CatMotivoConsultaSintomas, { foreignKey: 'motivo_consulta_sintoma_id', as: 'MotivoConsultaSintoma', targetKey: 'Codigo' });
 
 module.exports = Admision; // Exportar el modelo con el nuevo nombre

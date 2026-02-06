@@ -282,8 +282,10 @@ const ListaEspera = () => {
                 const userRolId = tokenData ? tokenData.rol_id : null;
 
                 // Botón Atender: Visible para administradores (rol_id 5) y médicos (rol_id 1) si el paciente está SIGNOS_VITALES o FALLECIDO
+                // MODIFICACIÓN: También permitir atender si el triaje es RESUCITACIÓN, sin importar el estado (ej. ADMITIDO)
                 const canAttend = userRolId === 1 || userRolId === 2 || userRolId === 5;
-                const isPreparedOrDeceased = paciente.estadoPaciente === 'SIGNOS_VITALES' || paciente.estadoPaciente === 'FALLECIDO';
+                const isResucitacion = paciente.triajeDefinitivoNombre === 'RESUCITACIÓN';
+                const isPreparedOrDeceased = paciente.estadoPaciente === 'SIGNOS_VITALES' || paciente.estadoPaciente === 'FALLECIDO' || isResucitacion;
                 const tieneAtencionPendiente = atencionesExistentes[paciente.admisionId] || paciente.tieneAtencionPendiente;
                 const showAttendButton = currentUserId && canAttend && isPreparedOrDeceased && !tieneAtencionPendiente;
                 const showContinuarButton = currentUserId && canAttend && tieneAtencionPendiente;

@@ -11,6 +11,7 @@ import Dashboard from './pages/Dashboard';
 import AdminAprobarUsuarios from './components/AdminAprobarUsuarios';
 import AdminUsuarios from './pages/AdminUsuarios';
 import AdminVideos from './pages/AdminVideos';
+import DashboardBI from './components/Admin/DashboardBI';
 import Reportes from './pages/Reportes';
 import Admision from './pages/Admision';
 import PacientesAdmitidos from './pages/SignosVitales'; // Renombrado de PacientesSinSignosVitales
@@ -147,6 +148,14 @@ function App() {
         element={
           <ProtectedRoute allowedRoles={[5]}>
             <AdminVideos />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/bi"
+        element={
+          <ProtectedRoute allowedRoles={[5]}>
+            <DashboardBI />
           </ProtectedRoute>
         }
       />

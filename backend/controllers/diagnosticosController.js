@@ -407,14 +407,14 @@ exports.validarFirma = async (req, res) => {
       }
     }
 
-    const puedeFirmar = (tieneDefinitivo || diagnosticos.length === 0) && antecedentesOk && violenciaOk && examenFisicoOk && obstetriciaOk && causaExternaOk;
+    const puedeFirmar = tieneDefinitivo && antecedentesOk && violenciaOk && examenFisicoOk && obstetriciaOk && causaExternaOk;
     let motivo = null;
     if (!violenciaOk) motivo = motivoViolencia;
     else if (!antecedentesOk) motivo = motivoAntecedentes;
     else if (!examenFisicoOk) motivo = motivoExamenFisico;
     else if (!obstetriciaOk) motivo = motivoObstetricia;
     else if (!causaExternaOk) motivo = motivoCausaExterna;
-    else if (!tieneDefinitivo && diagnosticos.length > 0) motivo = 'Debe existir al menos un diagnóstico DEFINITIVO (excepto códigos Z).';
+    else if (!tieneDefinitivo) motivo = 'Debe existir al menos un diagnóstico DEFINITIVO (excepto códigos Z).';
 
     res.status(200).json({
       puedeFirmar,

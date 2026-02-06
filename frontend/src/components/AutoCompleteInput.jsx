@@ -19,6 +19,7 @@ const AutoCompleteInput = ({
   const wrapperRef = useRef(null);
   const inputRef = useRef(null);
   const [isSelecting, setIsSelecting] = useState(false); // Para evitar que onBlur se ejecute cuando se hace click en una sugerencia
+  const justSelected = useRef(false);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -59,6 +60,14 @@ const AutoCompleteInput = ({
   // Mostrar sugerencias cuando lleguen del backend
   useEffect(() => {
     console.log('[AutoCompleteInput] useEffect - suggestions:', suggestions.length, 'value:', value.length, 'showSuggestions:', showSuggestions);
+    
+    if (justSelected.current) {
+      console.log('[AutoCompleteInput] Selección detectada, no abrir sugerencias');
+      justSelected.current = false;
+      setShowSuggestions(false);
+      return;
+    }
+
     if (value.length >= 2) {
       if (suggestions.length > 0) {
         console.log('[AutoCompleteInput] Mostrando sugerencias:', suggestions.length);
@@ -108,6 +117,7 @@ const AutoCompleteInput = ({
   const handleSuggestionClick = (suggestion) => {
     console.log('[AutoCompleteInput] handleSuggestionClick - seleccionando:', suggestion);
     setIsSelecting(true);
+    justSelected.current = true;
     onSelect(suggestion);
     setShowSuggestions(false);
     setHighlightedIndex(-1);

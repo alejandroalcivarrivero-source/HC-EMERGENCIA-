@@ -1,0 +1,1 @@
+ALTER TABLE ADMISIONES ADD COLUMN firma_digital_hash VARCHAR(255) NULL COMMENT 'Hash de la firma digital de la atención';

@@ -27,129 +27,149 @@ exports.getPacientesPorEstadoMedico = async (req, res) => {
     const ahora = moment().tz('America/Guayaquil');
     const hace24Horas = ahora.clone().subtract(24, 'hours').toDate();
 
-    // Obtener solo los registros de estado que son los más recientes para cada admisión
-    // Y que además su estado esté dentro de los estadosArray deseados.
-    // Obtener los IDs de los estados a partir de sus nombres
-    const estadosIds = await CatEstadoPaciente.findAll({
+    // Obtener los IDs de los estados solicitados desde CatEstadoPaciente
+    const estadosCat = await CatEstadoPaciente.findAll({
       where: {
         nombre: {
           [Op.in]: estadosArray
         }
       },
-      attributes: ['id']
-    }).then(estados => estados.map(estado => estado.id));
+      attributes: ['id', 'nombre']
+    });
+    
+    const estadosIds = estadosCat.map(e => e.id);
+    const mapaEstados = {};
+    estadosCat.forEach(e => mapaEstados[e.id] = e.nombre);
 
-    // Obtener ID del estado ATENDIDO
-    const atendidoEstado = await CatEstadoPaciente.findOne({ where: { nombre: 'ATENDIDO' } });
-
-    const pacientesFiltrados = await AtencionPacienteEstado.findAll({
+    // [MEJORA] Obtener ID de estado ADMITIDO y IDs de Triaje de Alta Prioridad
+    const estadoAdmitido = await CatEstadoPaciente.findOne({ where: { nombre: 'ADMITIDO' } });
+    const triajesAltaPrioridad = await CatTriaje.findAll({
       where: {
-        estado_id: { // Usar estado_id en lugar de estado
-          [Op.in]: estadosIds,
-          [Op.notIn]: await CatEstadoPaciente.findAll({
-            where: { nombre: ['ALTA_VOLUNTARIA', 'FALLECIDO', 'ATENCION_INCOMPLETA'] },
-            attributes: ['id']
-          }).then(estados => estados.map(estado => estado.id))
-        },
-        [Op.and]: [
-          {
-            createdAt: {
-              [Op.in]: AtencionPacienteEstado.sequelize.literal(`(
-                SELECT MAX(createdAt)
-                FROM ATENCION_PACIENTE_ESTADO AS T2
-                WHERE T2.admisionId = AtencionPacienteEstado.admisionId
-              )`)
-            }
-          }
+        [Op.or]: [
+          { nombre: { [Op.in]: ['Rojo', 'Naranja', 'RESUCITACIÓN', 'EMERGENCIA'] } },
+          { color: { [Op.in]: ['Rojo', 'Naranja'] } } // Por si acaso se usa la columna color
         ]
       },
+      attributes: ['id']
+    });
+    const triajeAltaIds = triajesAltaPrioridad.map(t => t.id);
+
+    // Construir cláusula WHERE dinámica
+    const whereClause = {
+      [Op.or]: [
+        {
+          estado_paciente_id: {
+            [Op.in]: estadosIds
+          }
+        }
+      ]
+    };
+
+    // Si tenemos el estado ADMITIDO y triajes de alta prioridad, agregamos la condición OR
+    if (estadoAdmitido && triajeAltaIds.length > 0) {
+      whereClause[Op.or].push({
+        estado_paciente_id: estadoAdmitido.id,
+        triajeDefinitivoId: {
+          [Op.in]: triajeAltaIds
+        }
+      });
+      // Agregar ADMITIDO al mapa de estados para que se muestre correctamente el nombre
+      mapaEstados[estadoAdmitido.id] = estadoAdmitido.nombre;
+    }
+
+    const admisionesEncontradas = await Admision.findAll({
+      where: whereClause,
+      attributes: ['id', 'fecha_hora_admision', 'triajeDefinitivoId', 'estado_paciente_id', 'prioridad_enfermeria', 'observacion_escalamiento', 'intentos_llamado', 'fecha_ultima_actividad', 'fecha_actualizacion'], // Usar columnas reales
       include: [
         {
-          model: Admision,
-          as: 'AdmisionEstado',
-          attributes: ['id', 'fecha_hora_admision', 'triajeDefinitivoId', 'estado_paciente_id', 'prioridad_enfermeria', 'observacion_escalamiento', 'intentos_llamado', 'fecha_ultima_actividad', 'fecha_actualizacion'], // Incluir campos de escalamiento y gestión de pacientes
-          include: [
-            {
-              model: Paciente,
-              as: 'Paciente',
-              attributes: ['id', 'primer_nombre', 'segundo_nombre', 'primer_apellido', 'segundo_apellido', 'numero_identificacion']
-            },
-            {
-              model: CatEstadoPaciente,
-              as: 'EstadoPaciente', // Usar el alias definido en Admision
-              attributes: ['nombre'] // Obtener el nombre del estado
-            },
-            {
-              model: CatTriaje,
-              as: 'TriajeDefinitivo', // Usar el alias correcto definido en init-associations.js
-              attributes: ['nombre', 'color'] // Obtener el nombre y color del triaje
-            },
-            {
-              model: SignosVitales,
-              as: 'DatosSignosVitales',
-              attributes: ['id', 'temperatura', 'presion_arterial', 'frecuencia_cardiaca', 'frecuencia_respiratoria', 'saturacion_oxigeno', 'fecha_hora_registro'],
-              required: false,
-              order: [['fecha_hora_registro', 'DESC']],
-              limit: 1, // OPTIMIZACIÓN: Solo obtener el último registro de signos vitales
-            }
-          ]
+          model: Paciente,
+          as: 'Paciente',
+          attributes: ['id', 'primer_nombre', 'segundo_nombre', 'primer_apellido', 'segundo_apellido', 'numero_identificacion']
         },
         {
           model: CatEstadoPaciente,
-          as: 'Estado', // Usar el alias definido en AtencionPacienteEstado
-          attributes: ['nombre'] // Obtener el nombre del estado
+          as: 'EstadoPaciente',
+          attributes: ['id', 'nombre']
         },
         {
-          model: Usuario,
-          as: 'UsuarioResponsableAtencion', // Alias definido en init-associations para usuarioResponsableId
-          attributes: ['id'] // Obtener el ID del usuario responsable
+          model: CatTriaje,
+          as: 'TriajeDefinitivo',
+          attributes: ['nombre', 'color']
+        },
+        {
+          model: SignosVitales,
+          as: 'DatosSignosVitales',
+          attributes: ['id', 'temperatura', 'presion_arterial', 'frecuencia_cardiaca', 'frecuencia_respiratoria', 'saturacion_oxigeno', 'fecha_hora_registro'],
+          required: false,
+          order: [['fecha_hora_registro', 'DESC']],
+          limit: 1
         }
       ],
       order: [
-        ['createdAt', 'DESC']
+        ['fecha_hora_admision', 'DESC']
       ]
     });
 
-    // Filtrar pacientes según la regla de 24 horas:
-    // - Si el estado es ATENDIDO y han pasado más de 24h desde fecha_hora_admision, NO mostrar
-    // - Todos los demás estados se muestran normalmente
-    let finalPacientes = pacientesFiltrados
-      .filter(paciente => {
-        // Si el paciente está ATENDIDO, verificar las 24 horas desde admisión
-        if (paciente.estado_id === atendidoEstado.id && paciente.AdmisionEstado && paciente.AdmisionEstado.fecha_hora_admision) {
-          const fechaAdmision = moment(paciente.AdmisionEstado.fecha_hora_admision).tz('America/Guayaquil');
-          const horasPasadas = ahora.diff(fechaAdmision, 'hours');
-          
-          console.log(`[getPacientesPorEstadoMedico] Paciente ATENDIDO - Admisión ID: ${paciente.admisionId}, Horas desde admisión: ${horasPasadas}`);
-          
-          // Solo mostrar si han pasado MENOS de 24 horas desde la admisión
-          return horasPasadas < 24;
-        }
-        
-        // Para todos los demás estados, mostrar sin restricción
-        return true;
-      })
-      .map(paciente => {
-        const json = paciente.toJSON();
-        // Compatibilidad con frontend que espera "Admision" (alias en init-associations es AdmisionEstado)
-        if (json.AdmisionEstado) json.Admision = json.AdmisionEstado;
-        return { ...json, usuarioResponsableId: paciente.UsuarioResponsableAtencion ? paciente.UsuarioResponsableAtencion.id : null };
+    // Transformar los resultados para mantener compatibilidad con el frontend
+    // El frontend espera una estructura basada en AtencionPacienteEstado
+    let finalPacientes = await Promise.all(admisionesEncontradas.map(async (admision) => {
+      // Buscar el último registro de AtencionPacienteEstado para obtener usuarioResponsableId y observaciones
+      const ultimoEstado = await AtencionPacienteEstado.findOne({
+        where: { admisionId: admision.id },
+        order: [['createdAt', 'DESC']],
+        include: [
+          {
+            model: Usuario,
+            as: 'UsuarioResponsableAtencion',
+            attributes: ['id']
+          }
+        ]
       });
+
+      const admisionJson = admision.toJSON();
+      const nombreEstado = admision.EstadoPaciente ? admision.EstadoPaciente.nombre : (mapaEstados[admision.estado_paciente_id] || 'DESCONOCIDO');
+      
+      // Estructura simulada de AtencionPacienteEstado para compatibilidad con Frontend
+      return {
+        id: ultimoEstado ? ultimoEstado.id : null, // ID del registro de estado (puede ser null si no hay historial)
+        admisionId: admision.id,
+        estado_id: admision.estado_paciente_id, // ID numérico real
+        estadoNombre: nombreEstado, // Nombre del estado para facilitar uso en frontend
+        usuarioResponsableId: ultimoEstado && ultimoEstado.UsuarioResponsableAtencion ? ultimoEstado.UsuarioResponsableAtencion.id : null,
+        observaciones: ultimoEstado ? ultimoEstado.observaciones : null,
+        createdAt: ultimoEstado ? ultimoEstado.createdAt : admision.fecha_ultima_actividad || admision.fecha_hora_admision, // Fecha del estado
+        Admision: admisionJson, // El frontend espera 'Admision' o 'AdmisionEstado'
+        AdmisionEstado: admisionJson, // Mantener compatibilidad con ambos nombres
+        Estado: { nombre: nombreEstado, id: admision.estado_paciente_id } // Objeto Estado real
+      };
+    }));
+
+    // Filtrar pacientes según la regla de 24 horas para ATENDIDOS
+    finalPacientes = finalPacientes.filter(paciente => {
+      const estadoActual = paciente.estadoNombre;
+      
+      if (estadoActual === 'ATENDIDO' && paciente.Admision && paciente.Admision.fecha_hora_admision) {
+        const fechaAdmision = moment(paciente.Admision.fecha_hora_admision).tz('America/Guayaquil');
+        const horasPasadas = ahora.diff(fechaAdmision, 'hours');
+        return horasPasadas < 24;
+      }
+      return true;
+    });
 
     // Lógica para ordenar con PRIORIDAD DE ENFERMERÍA primero, luego por triaje
     const ordenTriaje = { 'Rojo': 1, 'Naranja': 2, 'Amarillo': 3, 'Verde': 4, 'Azul': 5, 'Gris': 6 };
     finalPacientes.sort((a, b) => {
       // PRIMERO: Ordenar por prioridad de enfermería (los escalados van primero)
-      const prioridadA = a.AdmisionEstado ? a.AdmisionEstado.prioridad_enfermeria : 0;
-      const prioridadB = b.AdmisionEstado ? b.AdmisionEstado.prioridad_enfermeria : 0;
+      const prioridadA = a.Admision ? a.Admision.prioridad_enfermeria : 0;
+      const prioridadB = b.Admision ? b.Admision.prioridad_enfermeria : 0;
       
       if (prioridadB !== prioridadA) {
         return prioridadB - prioridadA; // Los de prioridad 1 van primero (orden descendente)
       }
       
       // SEGUNDO: Ordenar por triaje definitivo
-      const triajeA = a.AdmisionEstado && a.AdmisionEstado.TriajeDefinitivo ? a.AdmisionEstado.TriajeDefinitivo.nombre : 'Azul';
-      const triajeB = b.AdmisionEstado && b.AdmisionEstado.TriajeDefinitivo ? b.AdmisionEstado.TriajeDefinitivo.nombre : 'Azul';
+      const triajeA = a.Admision && a.Admision.TriajeDefinitivo ? a.Admision.TriajeDefinitivo.nombre : 'Azul';
+      const triajeB = b.Admision && b.Admision.TriajeDefinitivo ? b.Admision.TriajeDefinitivo.nombre : 'Azul';
       
       const triajeOrder = ordenTriaje[triajeA] - ordenTriaje[triajeB];
       if (triajeOrder !== 0) {
@@ -157,12 +177,12 @@ exports.getPacientesPorEstadoMedico = async (req, res) => {
       }
       
       // TERCERO: Por hora de llegada (fecha_hora_admision)
-      return new Date(a.AdmisionEstado.fecha_hora_admision) - new Date(b.AdmisionEstado.fecha_hora_admision);
+      return new Date(a.Admision.fecha_hora_admision) - new Date(b.Admision.fecha_hora_admision);
     });
 
     console.log(`[getPacientesPorEstadoMedico] Estados buscados: ${estadosArray.join(', ')}`);
     console.log(`[getPacientesPorEstadoMedico] IDs de estados encontrados: ${estadosIds.join(', ')}`);
-    console.log(`[getPacientesPorEstadoMedico] Número de pacientes encontrados antes de filtrar: ${pacientesFiltrados.length}`);
+    console.log(`[getPacientesPorEstadoMedico] Número de pacientes encontrados: ${finalPacientes.length}`);
     
     res.status(200).json(finalPacientes);
   } catch (error) {
@@ -191,8 +211,10 @@ exports.asignarMedicoAPaciente = async (req, res) => {
       return res.status(404).json({ message: 'Estado de atención del paciente no encontrado.' });
     }
 
-    // Obtener la instancia de Admision
-    const admision = await Admision.findByPk(admisionId);
+    // Obtener la instancia de Admision con TriajeDefinitivo para validar emergencias
+    const admision = await Admision.findByPk(admisionId, {
+      include: [{ model: CatTriaje, as: 'TriajeDefinitivo' }]
+    });
     if (!admision) {
       return res.status(404).json({ message: 'Admisión no encontrada.' });
     }
@@ -212,15 +234,23 @@ exports.asignarMedicoAPaciente = async (req, res) => {
       return res.status(200).json({ message: 'Paciente ya está en atención y asignado a este médico.', atencionEstado: ultimoAtencionEstado });
     }
 
-    // Obtener el ID del estado 'SIGNOS_VITALES'
+    // Obtener el ID del estado 'SIGNOS_VITALES' y 'ADMITIDO'
     const signosVitalesEstado = await CatEstadoPaciente.findOne({ where: { nombre: 'SIGNOS_VITALES' } });
+    const admitidoEstado = await CatEstadoPaciente.findOne({ where: { nombre: 'ADMITIDO' } });
+    
     if (!signosVitalesEstado) {
       return res.status(500).json({ message: 'Estado "SIGNOS_VITALES" no encontrado en el catálogo.' });
     }
 
+    // Verificar si es una emergencia crítica (RESUCITACIÓN)
+    const esResucitacion = admision.TriajeDefinitivo && admision.TriajeDefinitivo.nombre === 'RESUCITACIÓN';
+    const esAdmitidoCritico = esResucitacion && admitidoEstado && ultimoAtencionEstado.estado_id === admitidoEstado.id;
+
     // Si el paciente está en estado SIGNOS_VITALES, o en EN_ATENCION pero no asignado a este médico,
-    // o asignado a otro médico, se procede a actualizar el estado.
-    if (ultimoAtencionEstado.estado_id === signosVitalesEstado.id || (ultimoEstadoNombre === 'EN_ATENCION' && ultimoAtencionEstado.usuarioResponsableId !== usuarioResponsableId)) {
+    // o asignado a otro médico, o es ADMITIDO con RESUCITACIÓN, se procede a actualizar el estado.
+    if (ultimoAtencionEstado.estado_id === signosVitalesEstado.id ||
+        esAdmitidoCritico ||
+        (ultimoEstadoNombre === 'EN_ATENCION' && ultimoAtencionEstado.usuarioResponsableId !== usuarioResponsableId)) {
       // Si está asignado a otro médico, devolver conflicto
       if (ultimoAtencionEstado.usuarioResponsableId && ultimoAtencionEstado.usuarioResponsableId !== usuarioResponsableId) {
         console.log('[asignarMedicoAPaciente] Paciente ya ha sido asignado a otro médico.');
@@ -252,7 +282,7 @@ exports.asignarMedicoAPaciente = async (req, res) => {
     }
 
     // Si el estado no es SIGNOS_VITALES ni EN_ATENCION, o si ya está en EN_ATENCION y asignado a otro médico
-    return res.status(400).json({ message: 'El paciente no está en estado SIGNOS_VITALES o ya ha sido asignado a otro médico.' });
+    return res.status(400).json({ message: 'El paciente no está en estado SIGNOS_VITALES (o ADMITIDO/RESUCITACIÓN) o ya ha sido asignado a otro médico.' });
   } catch (error) {
     console.error('Error al asignar médico al paciente:', error);
     res.status(500).json({ message: 'Error al asignar médico al paciente.', error: error.message });

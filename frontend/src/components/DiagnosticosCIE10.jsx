@@ -205,6 +205,7 @@ const DiagnosticosCIE10 = ({ atencionId, readOnly = false, formDataMain }) => {
       ...prev,
       codigoCIE10: cod,
       descripcionCie: cie10.descripcion || '',
+      descripcion: cie10.descripcion || '', // Auto-fill Description
     }));
     setCie10Options([]);
     setSearchTerm(`${cod} - ${cie10.descripcion}`);

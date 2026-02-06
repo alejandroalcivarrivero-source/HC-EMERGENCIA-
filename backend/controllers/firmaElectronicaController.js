@@ -3,7 +3,7 @@ const DetalleDiagnostico = require("../models/DetalleDiagnostico");
 const CertificadoFirma = require("../models/certificadoFirma");
 const TemporalGuardado = require("../models/temporal_guardado"); // Nueva importación
 const Paciente = require("../models/pacientes");
-const Admision = require("../models/admisiones");
+const Admision = require("../models/Admision"); // MODIFICADO: Usar el nuevo modelo Admision
 const Usuario = require("../models/usuario");
 const { encrypt, decrypt } = require("../utils/cryptoFirma");
 const { extraerMetadatos, abrirP12ParaFirma } = require("../utils/p12Metadatos");
@@ -364,10 +364,33 @@ exports.firmarAtencion = async (req, res) => { // Ahora es exports.firmarAtencio
       return res.status(400).json({ message: validacion.motivo });
     }
 
+    // INICIO: Lógica modificada para validar Admision y estado
     const atencion = await AtencionEmergencia.findByPk(atencionId);
     if (!atencion) {
       return res.status(404).json({ message: 'Atención no encontrada.' });
     }
+
+    const admision = await Admision.findByPk(atencion.admisionId);
+    if (!admision) {
+      return res.status(404).json({ message: 'Admisión asociada no encontrada.' });
+    }
+
+    // Validación Legal: Admision debe existir y tener un estado válido
+    // Un estado válido para firmar es cualquier estado que no sea 'EGRESADO'
+    // Primero obtenemos el nombre del estado si tenemos el ID
+    let estadoNombre = 'DESCONOCIDO';
+    if (admision.estado_paciente_id) {
+        // Importar CatEstadoPaciente localmente si es necesario o asumir que ya está cargado si usamos include
+        // Aquí haremos una consulta rápida si no vino con include
+        const CatEstadoPaciente = require("../models/cat_estado_paciente");
+        const estadoObj = await CatEstadoPaciente.findByPk(admision.estado_paciente_id);
+        if (estadoObj) estadoNombre = estadoObj.nombre;
+    }
+
+    if (estadoNombre === 'EGRESADO') {
+      return res.status(400).json({ message: `No se puede firmar una atención con estado de Admisión: ${estadoNombre}.` });
+    }
+    // FIN: Lógica modificada para validar Admision y estado
 
     if (atencion.estadoFirma === 'FINALIZADO_FIRMADO') {
       return res.status(400).json({ message: 'Esta atención ya ha sido firmada.' });
@@ -384,6 +407,13 @@ exports.firmarAtencion = async (req, res) => { // Ahora es exports.firmarAtencio
       estadoFirma: 'FINALIZADO_FIRMADO',
       selloDigital: JSON.stringify(sello)
     });
+
+    // MODIFICADO: Actualizar el nuevo modelo Admision con los nuevos campos (camelCase)
+    await admision.update({
+      firmaDigitalHash: sello.digestBase64,
+      fechaFirma: new Date()
+    });
+    // FIN MODIFICADO
 
     const pdfBuffer = await generarPDFFormulario008(atencionId);
     res.setHeader('Content-Type', 'application/pdf');
@@ -544,10 +574,30 @@ exports.firmarConCertificadoGuardado = async (req, res) => {
     }
     const { privateKey, metadatos } = abrirP12ParaFirma(p12Buffer, String(password).trim());
 
+    // INICIO: Lógica modificada para validar Admision y estado
     const atencion = await AtencionEmergencia.findByPk(atencionId);
     if (!atencion) {
       return res.status(404).json({ message: 'Atención no encontrada.' });
     }
+
+    const admision = await Admision.findByPk(atencion.admisionId);
+    if (!admision) {
+        return res.status(404).json({ message: 'Admisión asociada no encontrada.' });
+    }
+
+    // Validación Legal: Admision debe existir y tener un estado válido
+    let estadoNombre = 'DESCONOCIDO';
+    if (admision.estado_paciente_id) {
+        const CatEstadoPaciente = require("../models/cat_estado_paciente");
+        const estadoObj = await CatEstadoPaciente.findByPk(admision.estado_paciente_id);
+        if (estadoObj) estadoNombre = estadoObj.nombre;
+    }
+
+    if (estadoNombre === 'EGRESADO') {
+        return res.status(400).json({ message: `No se puede firmar una atención con estado de Admisión: ${estadoNombre}.` });
+    }
+    // FIN: Lógica modificada para validar Admision y estado
+
     if (atencion.estadoFirma === 'FINALIZADO_FIRMADO') {
       return res.status(400).json({ message: 'Esta atención ya ha sido firmada.' });
     }
@@ -561,6 +611,13 @@ exports.firmarConCertificadoGuardado = async (req, res) => {
       estadoFirma: 'FINALIZADO_FIRMADO',
       selloDigital: JSON.stringify(sello)
     });
+
+    // MODIFICADO: Actualizar el nuevo modelo Admision con los nuevos campos (camelCase)
+    await admision.update({
+      firmaDigitalHash: sello.digestBase64,
+      fechaFirma: new Date()
+    });
+    // FIN MODIFICADO
 
     return res.json({ ok: true, sello });
   } catch (error) {

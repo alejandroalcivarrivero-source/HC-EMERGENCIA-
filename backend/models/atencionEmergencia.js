@@ -5,6 +5,7 @@ const Admision = require('./admisiones');
 const Usuario = require('./usuario');
 const TemporalGuardado = require('./temporal_guardado');
 const DetalleDiagnostico = require('./DetalleDiagnostico');
+const Form008Emergencia = require('./Form008Emergencia');
 
 const AtencionEmergencia = sequelize.define('AtencionEmergencia', {
   id: {
@@ -42,7 +43,7 @@ const AtencionEmergencia = sequelize.define('AtencionEmergencia', {
     allowNull: false
   },
   horaAtencion: {
-    type: DataTypes.STRING(5), // HH:mm
+    type: DataTypes.STRING(10), // CAMBIO: Aumentado a 10 para HH:mm:ss o más
     allowNull: false
   },
   condicionLlegada: {
@@ -199,6 +200,9 @@ const AtencionEmergencia = sequelize.define('AtencionEmergencia', {
 // que los modelos cargados en el controlador tengan las relaciones listas.
 AtencionEmergencia.hasOne(TemporalGuardado, { foreignKey: 'idAtencion', as: 'borrador' });
 TemporalGuardado.belongsTo(AtencionEmergencia, { foreignKey: 'idAtencion' });
+
+AtencionEmergencia.hasOne(Form008Emergencia, { foreignKey: 'atencionId', as: 'formulario008' });
+Form008Emergencia.belongsTo(AtencionEmergencia, { foreignKey: 'atencionId' });
 
 // AtencionEmergencia.hasMany(DetalleDiagnostico, { foreignKey: 'atencion_emergencia_id', as: 'diagnosticos' });
 // DetalleDiagnostico.belongsTo(AtencionEmergencia, { foreignKey: 'atencion_emergencia_id' });

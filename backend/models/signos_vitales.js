@@ -20,6 +20,14 @@ const SignosVitales = sequelize.define('SignosVitales', {
     type: DataTypes.STRING(20),
     allowNull: true,
   },
+  presion_sistolica: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+  },
+  presion_diastolica: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+  },
   frecuencia_cardiaca: {
     type: DataTypes.INTEGER,
     allowNull: true,

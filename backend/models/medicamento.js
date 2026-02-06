@@ -7,38 +7,31 @@ const Medicamento = sequelize.define('Medicamento', {
     autoIncrement: true,
     primaryKey: true
   },
-  nombre: {
-    type: DataTypes.STRING(255),
-    allowNull: false
-  },
-  cantidad: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    defaultValue: 0
-  },
-  unidad_medida: {
+  codigo_cum: {
     type: DataTypes.STRING(50),
     allowNull: true
   },
-  fecha_caducidad: {
-    type: DataTypes.DATEONLY,
-    allowNull: true
+  nombre_generico: {
+    type: DataTypes.TEXT,
+    allowNull: false
   },
-  lote: {
+  forma_farmaceutica: {
     type: DataTypes.STRING(100),
     allowNull: true
   },
-  proveedor: {
-    type: DataTypes.STRING(255),
+  concentracion: {
+    type: DataTypes.STRING(100),
     allowNull: true
   },
-  descripcion: {
-    type: DataTypes.TEXT,
-    allowNull: true
+  stock_minimo: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0
   }
 }, {
-  tableName: 'MEDICAMENTOS',
-  timestamps: true // Esto agregará createdAt y updatedAt automáticamente
+  tableName: 'CAT_MEDICAMENTOS',
+  timestamps: true,
+  createdAt: 'fecha_creacion',
+  updatedAt: 'fecha_actualizacion'
 });
 
 module.exports = Medicamento;

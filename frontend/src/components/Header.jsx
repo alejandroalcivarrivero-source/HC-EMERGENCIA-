@@ -33,6 +33,7 @@ export const quickAccessLinks = {
     4: [{ name: 'Reportes', path: '/reportes', icon: BarChart3 }],
     5: [
       { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
+      { name: 'Dashboard BI', path: '/admin/bi', icon: BarChart3 },
       { name: 'Gestión de Usuarios', path: '/admin/usuarios', icon: Users },
       { name: 'Videos', path: '/admin/videos', icon: FileText },
       { name: 'Reportes Globales', path: '/reportes', icon: BarChart3 },

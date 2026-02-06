@@ -134,7 +134,11 @@ const createAdmision = async (req, res) => {
       alerta_triaje_activa: false, // Por defecto
       fecha_hora_ultima_alerta_triaje: null, // Por defecto
       prioridad_enfermeria: prioridadEnfermeria, // Escalamiento automático si triaje es ROJO
-      observacion_escalamiento: observacionEscalamientoAuto // Observación automática del escalamiento
+      observacion_escalamiento: observacionEscalamientoAuto, // Observación automática del escalamiento
+      // fecha_creacion y fecha_actualizacion son manejados automaticamente por Sequelize si timestamps: true,
+      // pero en el modelo timestamps: false, asi que los manejamos nosotros o dejamos que la BD use default values
+      fecha_creacion: new Date(),
+      fecha_actualizacion: new Date()
     });
 
     // Crear el estado inicial en ATENCION_PACIENTE_ESTADO

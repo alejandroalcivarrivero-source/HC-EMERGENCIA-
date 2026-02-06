@@ -373,11 +373,24 @@ exports.saveSignosVitalesAndTriaje = async (req, res) => {
       return res.status(400).json({ message: 'No se pueden registrar signos vitales para un paciente fallecido.' });
     }
 
+    // Parse blood pressure for segmentation
+    let sistolica = null;
+    let diastolica = null;
+    if (!sin_constantes_vitales && presion_arterial) {
+      const parts = presion_arterial.split('/').map(p => parseInt(p.trim(), 10));
+      if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+        sistolica = parts[0];
+        diastolica = parts[1];
+      }
+    }
+
     let dataToCreate = {
       admisionId,
       sin_constantes_vitales,
       temperatura: sin_constantes_vitales ? null : temperatura,
       presion_arterial: sin_constantes_vitales ? null : presion_arterial,
+      presion_sistolica: sistolica,
+      presion_diastolica: diastolica,
       frecuencia_cardiaca: sin_constantes_vitales ? null : frecuencia_cardiaca,
       frecuencia_respiratoria: sin_constantes_vitales ? null : frecuencia_respiratoria,
       saturacion_oxigeno: sin_constantes_vitales ? null : saturacion_oxigeno,
@@ -393,6 +406,12 @@ exports.saveSignosVitalesAndTriaje = async (req, res) => {
     };
 
     const signosVitales = await SignosVitales.create(dataToCreate, { transaction: t });
+
+    // Automatic Alert Trigger
+    if (sistolica && sistolica > 140) {
+      console.warn(`[ALERTA CLÍNICA] Paciente con admisión ${admisionId} presenta presión sistólica elevada: ${sistolica} mmHg`);
+      // Here you could integrate with a notification service or create a specialized alert record
+    }
 
     // Si no se proporciona un triajeDefinitivoId, calcularlo
     let finalTriajeId = triajeDefinitivoId;
