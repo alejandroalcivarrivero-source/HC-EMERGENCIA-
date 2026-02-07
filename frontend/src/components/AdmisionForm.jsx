@@ -33,6 +33,7 @@ export default function AdmisionForm() {
   const [pacienteIdExistente, setPacienteIdExistente] = useState(null); // Nuevo estado para el ID del paciente existente
   const [motivosConsultaSugerencias, setMotivosConsultaSugerencias] = useState([]); // Nuevo estado para sugerencias de motivos de consulta
   const [motivoConsultaSeleccionado, setMotivoConsultaSeleccionado] = useState(null); // Nuevo estado para el motivo de consulta seleccionado
+  const [sugerirRevisionMedica, setSugerirRevisionMedica] = useState(false); // Nuevo estado para sugerir revisión médica
   const [formData, setFormData] = useState({
     // Datos Personales
     tipoIdentificacion: '',
@@ -904,11 +905,13 @@ export default function AdmisionForm() {
         fechaParto: formData.fechaNacimiento ? formData.fechaNacimiento.split('T')[0] : null, // Extraer solo la fecha
         horaParto: partoTime, // Usar el estado partoTime para la hora
         calculatedAgeInHours, // Añadir la edad en horas
-        motivoConsultaSintomaId: motivoConsultaSeleccionado ? motivoConsultaSeleccionado.id : null // Añadir el ID del motivo de consulta
+        motivoConsultaSintomaId: motivoConsultaSeleccionado ? motivoConsultaSeleccionado.id : null, // Añadir el ID del motivo de consulta
+        sugerirRevisionMedica // Añadir el estado de sugerencia de revisión médica
       };
       console.log('Datos de admisión enviados desde frontend (guardar):', {
         ...dataToSend,
-        motivoConsultaSintomaId: dataToSend.motivoConsultaSintomaId // Asegurarse de que se loguee el ID
+        motivoConsultaSintomaId: dataToSend.motivoConsultaSintomaId, // Asegurarse de que se loguee el ID
+        sugerirRevisionMedica: dataToSend.sugerirRevisionMedica
       });
 
       // Usar axios en lugar de fetch para aprovechar el interceptor global
@@ -951,11 +954,13 @@ export default function AdmisionForm() {
         fechaParto: formData.fechaNacimiento ? formData.fechaNacimiento.split('T')[0] : null, // Extraer solo la fecha
         horaParto: partoTime, // Usar el estado partoTime para la hora
         calculatedAgeInHours, // Añadir la edad en horas
-        motivoConsultaSintomaId: motivoConsultaSeleccionado ? motivoConsultaSeleccionado.id : null // Añadir el ID del motivo de consulta
+        motivoConsultaSintomaId: motivoConsultaSeleccionado ? motivoConsultaSeleccionado.id : null, // Añadir el ID del motivo de consulta
+        sugerirRevisionMedica // Añadir el estado de sugerencia de revisión médica
       };
       console.log('Datos de admisión enviados desde frontend (guardarYNavegar):', {
         ...dataToSend,
-        motivoConsultaSintomaId: dataToSend.motivoConsultaSintomaId // Asegurarse de que se loguee el ID
+        motivoConsultaSintomaId: dataToSend.motivoConsultaSintomaId, // Asegurarse de que se loguee el ID
+        sugerirRevisionMedica: dataToSend.sugerirRevisionMedica
       });
 
       // Usar axios en lugar de fetch para aprovechar el interceptor global
@@ -1078,6 +1083,7 @@ export default function AdmisionForm() {
       motivoConsulta: selectedMotivo.Motivo_Consulta_Sintoma
     }));
     setMotivoConsultaSeleccionado(selectedMotivo);
+    setSugerirRevisionMedica(false); // Resetear el checkbox al cambiar el motivo
     console.log('[AdmisionForm] Motivo guardado en estado:', selectedMotivo);
   };
 
@@ -2095,6 +2101,33 @@ export default function AdmisionForm() {
                     <strong>Código Triaje:</strong> {motivoConsultaSeleccionado.Codigo_Triaje}
                   </p>
                 )}
+              </div>
+            )}
+            
+            {/* Checkbox para Sugerir Revisión Médica (visible solo para IDs 1516 y 1517) */}
+            {motivoConsultaSeleccionado && (
+              <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-md">
+                <div className="flex items-start">
+                  <div className="flex items-center h-5">
+                    <input
+                      id="sugerirRevisionMedica"
+                      name="sugerirRevisionMedica"
+                      type="checkbox"
+                      checked={sugerirRevisionMedica}
+                      onChange={(e) => setSugerirRevisionMedica(e.target.checked)}
+                      className="focus:ring-yellow-500 h-4 w-4 text-yellow-600 border-gray-300 rounded"
+                      disabled={!isFormEnabledForNewEntry || !((motivoConsultaSeleccionado.id === 1516) || (motivoConsultaSeleccionado.id === 1517))}
+                    />
+                  </div>
+                  <div className="ml-3 text-sm">
+                    <label htmlFor="sugerirRevisionMedica" className="font-medium text-gray-700">
+                      Sugerir revisión médica
+                    </label>
+                    <p className="text-gray-500">
+                      Si activa esta opción, el paciente pasará a 'Toma de Signos' (URGENCIA PENDIENTE) en lugar de ir directamente a Procedimientos.
+                    </p>
+                  </div>
+                </div>
               </div>
             )}
           </div>

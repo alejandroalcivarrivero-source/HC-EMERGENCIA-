@@ -205,7 +205,22 @@ export default function SignosVitalesPage() {
                           <button onClick={() => handleTomarSignos(admision.admisionId)} className="bg-indigo-500 hover:bg-indigo-700 text-white font-bold py-1 px-3 rounded focus:outline-none focus:shadow-outline mr-2">Tomar Signos</button>
                         )}
                         {usuario && (usuario.rol_id === 1 || usuario.rol_id === 3) && ( // Médico o Enfermero
-                          <button onClick={() => handleRegistrarProcedimiento(admision.id, admision.admisionId)} className="bg-purple-500 hover:bg-purple-700 text-white font-bold py-1 px-3 rounded focus:outline-none focus:shadow-outline mr-2">Registrar Procedimiento</button>
+                          <button
+                            onClick={() => handleRegistrarProcedimiento(admision.id, admision.admisionId)}
+                            className={`font-bold py-1 px-3 rounded focus:outline-none focus:shadow-outline mr-2 ${
+                              (admision.motivoId === 1516 || admision.motivoId === 1517) || admision.ultimoSignoVital
+                                ? "bg-purple-500 hover:bg-purple-700 text-white"
+                                : "bg-gray-400 text-gray-700 cursor-not-allowed"
+                            }`}
+                            disabled={!((admision.motivoId === 1516 || admision.motivoId === 1517) || admision.ultimoSignoVital)}
+                            title={
+                              !((admision.motivoId === 1516 || admision.motivoId === 1517) || admision.ultimoSignoVital)
+                                ? "Debe registrar los signos vitales primero"
+                                : "Registrar Procedimiento"
+                            }
+                          >
+                            Registrar Procedimiento
+                          </button>
                         )}
                         <button onClick={() => openHistorialAdmisionesModal(admision.id)} className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-1 px-3 rounded focus:outline-none focus:shadow-outline">Ver Historial</button>
                       </td>

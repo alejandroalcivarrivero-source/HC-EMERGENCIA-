@@ -984,11 +984,22 @@ exports.crearRegistroAdmision = async (req, res) => {
       const nuevaAdmision = await Admision.create(admisionData, { transaction: t });
       console.log('Admision creada con ID:', nuevaAdmision.id);
 
-      // 8. Inicializar el estado de atención del paciente a 'ADMITIDO'
-      try {
-        await createOrUpdateAtencionPacienteEstado(nuevaAdmision, 'ADMITIDO', usuarioAdmisionIdParsed, usuarioExistente.Rol.id, null, null, t);
-        console.log(`Estado de atención del paciente ${nuevaAdmision.id} inicializado a ADMITIDO.`);
-      } catch (estadoError) {
+      // 8. Inicializar el estado de atención del paciente
+        try {
+          let estadoInicial = 'ADMITIDO';
+          const motivoId = motivoConsultaSintomaObj ? motivoConsultaSintomaObj.id : null;
+  
+          // Lógica de bloqueo/excepción
+          if (motivoId === 1516 || motivoId === 1517) {
+            estadoInicial = 'PROCEDIMIENTOS';
+            console.log(`[crearRegistroAdmision] Regla de bloqueo: Estado inicial ${estadoInicial} (Motivo ${motivoId})`);
+          } else {
+            console.log(`[crearRegistroAdmision] Flujo normal: Estado inicial ${estadoInicial}`);
+          }
+  
+          await createOrUpdateAtencionPacienteEstado(nuevaAdmision, estadoInicial, usuarioAdmisionIdParsed, usuarioExistente.Rol.id, null, null, t);
+          console.log(`Estado de atención del paciente ${nuevaAdmision.id} inicializado a ${estadoInicial}.`);
+        } catch (estadoError) {
         console.error(`Error al inicializar estado de atención (pero admisión creada):`, estadoError);
         // No lanzar el error aquí para que la admisión se guarde aunque falle el estado
         // El estado se puede crear después manualmente si es necesario
@@ -1544,7 +1555,7 @@ exports.obtenerAdmisionesActivas = async (req, res) => {
         {
           model: CatMotivoConsultaSintomas,
           as: 'MotivoConsultaSintoma',
-          attributes: ['Motivo_Consulta_Sintoma', 'Categoria', 'Codigo_Triaje'],
+          attributes: ['Codigo', 'Motivo_Consulta_Sintoma', 'Categoria', 'Codigo_Triaje'],
           required: false,
         },
         {
@@ -1652,6 +1663,7 @@ exports.obtenerAdmisionesActivas = async (req, res) => {
         triajeDefinitivoColor: triajeColor,
         formaLlegadaNombre: admision.FormaLlegada ? admision.FormaLlegada.nombre : 'Desconocido',
         motivoConsulta: admision.MotivoConsultaSintoma ? admision.MotivoConsultaSintoma.Motivo_Consulta_Sintoma : 'N/A',
+        motivoId: admision.MotivoConsultaSintoma ? admision.MotivoConsultaSintoma.Codigo : null,
         ultimoSignoVital: admision.DatosSignosVitales && admision.DatosSignosVitales.length > 0 ? {
           temperatura: admision.DatosSignosVitales[0].temperatura,
           presionArterial: admision.DatosSignosVitales[0].presion_arterial,

@@ -137,16 +137,32 @@ async function createAtencionEmergencia(req, res) {
             });
         }
 
+        // Separamos datos médicos para que NO se guarden en ATENCION_EMERGENCIA (Header)
+        // y solo vayan a FORM_008_EMERGENCIA.
+        // Mantenemos firma_digital_hash en ambos o solo en header según requerimiento,
+        // pero el usuario pidió verificar columna en ATENCION_EMERGENCIA, así que la incluimos.
+        const {
+            motivoAtencion,
+            antecedentesPatologicos,
+            enfermedadProblemaActual,
+            examenFisico,
+            diagnosticosPresuntivos,
+            diagnosticosDefinitivos,
+            planTratamiento,
+            examenesComplementarios,
+            ...datosAdministrativos
+        } = restOfBody;
+
         const dataToSave = {
-            ...restOfBody,
+            ...datosAdministrativos,
             pacienteId,
             admisionId,
-            usuarioId: usuarioId || req.user?.id, // Fallback al usuario autenticado
-            usuarioResponsableId: usuarioResponsableId || req.user?.id, // Si no se especifica, el creador es responsable
+            usuarioId: usuarioId || req.user?.id,
+            usuarioResponsableId: usuarioResponsableId || req.user?.id,
             fechaAtencion: handleFecha(fechaAtencion),
             horaAtencion: (horaAtencion || '').substring(0, 5),
             condicionLlegada: (condicionLlegada || '').toUpperCase(),
-            fecha_fallecimiento: handleFecha(fecha_fallecimiento), // Sanitizar fecha fallecimiento
+            fecha_fallecimiento: handleFecha(fecha_fallecimiento),
             hora_fallecimiento: hora_fallecimiento ? hora_fallecimiento.substring(0, 5) : null
         };
 
@@ -159,21 +175,17 @@ async function createAtencionEmergencia(req, res) {
         const atencion = await AtencionEmergencia.create(dataToSave, { transaction: t });
 
         // 1.1. Create Clinical Data (Form 008)
-        // Extract clinical fields from restOfBody (everything not in dataToSave explícitamente ya usado)
-        // Since dataToSave has restOfBody spread, we can use restOfBody for Form008 + some overlap
-        
         const form008Data = {
             atencionId: atencion.id,
-            motivoAtencion: restOfBody.motivoAtencion,
-            antecedentesPatologicos: stringifyData(restOfBody.antecedentesPatologicos),
-            enfermedadProblemaActual: restOfBody.enfermedadProblemaActual,
-            examenFisico: stringifyData(restOfBody.examenFisico),
-            diagnosticosPresuntivos: stringifyData(restOfBody.diagnosticosPresuntivos),
-            diagnosticosDefinitivos: stringifyData(restOfBody.diagnosticosDefinitivos),
-            planTratamiento: stringifyData(restOfBody.planTratamiento),
-            // Mapeo de campos adicionales
-            examenesComplementarios: stringifyData(restOfBody.examenesComplementarios),
-            firma_digital_hash: restOfBody.firma_digital_hash,
+            motivoAtencion: motivoAtencion,
+            antecedentesPatologicos: stringifyData(antecedentesPatologicos),
+            enfermedadProblemaActual: enfermedadProblemaActual,
+            examenFisico: stringifyData(examenFisico),
+            diagnosticosPresuntivos: stringifyData(diagnosticosPresuntivos),
+            diagnosticosDefinitivos: stringifyData(diagnosticosDefinitivos),
+            planTratamiento: stringifyData(planTratamiento),
+            examenesComplementarios: stringifyData(examenesComplementarios),
+            firma_digital_hash: restOfBody.firma_digital_hash, // También en Form008 por redundancia/histórico
             estado_firma: restOfBody.estadoFirma || 'BORRADOR',
             usuario_responsable_id: dataToSave.usuarioResponsableId
         };
@@ -280,15 +292,27 @@ async function updateAtencionEmergencia(req, res) {
             ...restOfBody
         } = req.body;
         
+        // Separar datos médicos
+        const {
+            motivoAtencion,
+            antecedentesPatologicos,
+            enfermedadProblemaActual,
+            examenFisico,
+            diagnosticosPresuntivos,
+            diagnosticosDefinitivos,
+            planTratamiento,
+            examenesComplementarios,
+            ...datosAdministrativosUpdate
+        } = restOfBody;
+
         const dataToUpdate = {
-            ...restOfBody,
+            ...datosAdministrativosUpdate,
             ...(pacienteId && { pacienteId }),
             ...(admisionId && { admisionId }),
             ...(usuarioId && { usuarioId }),
             ...(usuarioResponsableId && { usuarioResponsableId }),
             ...(fechaAtencion && { fechaAtencion: handleFecha(fechaAtencion) }),
             ...(horaAtencion && { horaAtencion: (horaAtencion || '').substring(0, 5) }),
-            // Campos de fallecimiento (permitir null explícito para limpiar)
             fecha_fallecimiento: fecha_fallecimiento ? handleFecha(fecha_fallecimiento) : (fecha_fallecimiento === null ? null : undefined),
             hora_fallecimiento: hora_fallecimiento ? hora_fallecimiento.substring(0, 5) : (hora_fallecimiento === null ? null : undefined)
         };
@@ -307,15 +331,15 @@ async function updateAtencionEmergencia(req, res) {
         }
 
         // Actualizar o crear Form008Emergencia
-        // Extraer datos clínicos del body original (restOfBody ya tiene lo que no es cabecera administrativa explícita)
         const form008Data = {
-            motivoAtencion: restOfBody.motivoAtencion,
-            antecedentesPatologicos: stringifyData(restOfBody.antecedentesPatologicos),
-            enfermedadProblemaActual: restOfBody.enfermedadProblemaActual,
-            examenFisico: stringifyData(restOfBody.examenFisico),
-            diagnosticosPresuntivos: stringifyData(restOfBody.diagnosticosPresuntivos),
-            diagnosticosDefinitivos: stringifyData(restOfBody.diagnosticosDefinitivos),
-            planTratamiento: stringifyData(restOfBody.planTratamiento),
+            motivoAtencion: motivoAtencion,
+            antecedentesPatologicos: stringifyData(antecedentesPatologicos),
+            enfermedadProblemaActual: enfermedadProblemaActual,
+            examenFisico: stringifyData(examenFisico),
+            diagnosticosPresuntivos: stringifyData(diagnosticosPresuntivos),
+            diagnosticosDefinitivos: stringifyData(diagnosticosDefinitivos),
+            planTratamiento: stringifyData(planTratamiento),
+            examenesComplementarios: stringifyData(examenesComplementarios),
             firma_digital_hash: restOfBody.firma_digital_hash,
             estado_firma: restOfBody.estadoFirma,
             sello_digital: restOfBody.selloDigital
