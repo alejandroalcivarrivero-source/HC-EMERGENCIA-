@@ -1,6 +1,6 @@
 import axios from 'axios';
+import { clearSession } from '../utils/authUtils'; // Importamos la función de limpieza
 
-// Configurar interceptores globales en la instancia por defecto de axios
 // Interceptor de solicitudes: agregar token automáticamente
 axios.interceptors.request.use(
   (config) => {
@@ -34,24 +34,23 @@ axios.interceptors.response.use(
       // 401: No autorizado (token faltante o inválido)
       // 403: Prohibido (token expirado o inválido)
       if (status === 401 || status === 403) {
-        const errorMessage = data?.message || 'Token inválido o expirado.';
+        const errorMessage = data?.message || 'Sesión expirada. Por favor, inicie sesión de nuevo.';
         
         console.warn('[Axios Interceptor] Token inválido o expirado. Limpiando sesión...');
         
-        // Limpiar datos de sesión
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        localStorage.removeItem('userId');
+        // Limpiar datos de sesión usando la utilidad
+        clearSession(); 
         
         // Solo redirigir si no estamos ya en la página de login
-        if (window.location.pathname !== '/') {
+        const currentPath = window.location.pathname;
+        if (currentPath !== '/login') {
           console.warn('[Axios Interceptor] Redirigiendo al login...');
           // Usar window.location.href para forzar recarga completa y limpiar estado
-          window.location.href = '/';
+          window.location.href = '/login';
         }
         
         // Retornar un error más descriptivo
-        return Promise.reject(new Error(errorMessage));
+        return Promise.reject({ ...error, message: errorMessage });
       }
     }
     

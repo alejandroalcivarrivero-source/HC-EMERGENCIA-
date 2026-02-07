@@ -304,6 +304,9 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
       setTimeout(() => setSaveError(null), 5000);
     } finally {
       setSaving(false);
+      // Si el autoSave falla por un error que no se captura en el try/catch superior (poco probable
+      // ya que axios tiene sus propios errores, pero por si acaso), forzamos el desbloqueo aquí.
+      // Nota: El bloqueo principal de LOADING (setLoading(false)) ocurre en el handleSubmit principal.
     }
   }, [admisionData, admisionId, readOnly, atencionData, formData]); // Agregar formData a las dependencias
 
@@ -318,10 +321,17 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
     timeoutRef.current = setTimeout(() => {
       autoSave(formData, false); // Usar formData
     }, 2000); // 2 segundos de delay
-
+    
     return () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
+      }
+      // Asegurar que si el componente se desmonta mientras se está procesando un guardado
+      // (lo cual es crítico si el guardado es "inmediato" o si el timeout se dispara justo al desmontar),
+      // forzamos el desbloqueo de 'saving' en el finally del autoSave, pero aquí nos aseguramos de limpiar el timer.
+      // Adicionalmente, si el componente se desmonta mientras está cargando datos iniciales, 'loading' debe ser reseteado.
+      if (loading) {
+        setLoading(false);
       }
     };
   }, [formData, autoSave, loading, admisionData, readOnly]); // Usar formData en dependencias
@@ -469,31 +479,82 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
     }));
   };
 
-  /** Sección K: marcar/desmarcar ítem de exámenes complementarios (1–16) */
-  const setExamenItemK = (num, checked) => {
+  /** Sección K: manejar cambio de ítem de exámenes complementarios (1–16) */
+  const handleEstudioChange = (num, checked) => {
     setFormData(prev => {
       const ec = prev.examenesComplementarios || DEFAULT_EXAMENES_K();
+      const newItems = { ...(ec.items || {}), [num]: !!checked };
+      const isAnyExamChecked = Object.values(newItems).some(v => v);
+
+      // Requirement B: Al marcar cualquier examen, 'No aplica' se setea a false
+      const newNoAplica = isAnyExamChecked ? false : ec.examenes_no_aplica;
+
       return {
         ...prev,
         examenesComplementarios: {
           ...ec,
-          items: { ...(ec.items || {}), [num]: !!checked }
+          examenes_no_aplica: newNoAplica,
+          items: newItems
+        }
+      };
+    });
+  };
+  
+  /**
+   * Sección K: Maneja el cambio de un ítem de estudio individual (1-16).
+   * Si se marca/desmarca un estudio, se asegura que 'examenes_no_aplica' sea false si hay al menos un estudio marcado.
+   */
+  const handleExamenChange = (checked, itemId) => {
+    setFormData(prev => {
+      const ec = prev.examenesComplementarios || DEFAULT_EXAMENES_K();
+      const newItems = { ...(ec.items || {}), [itemId]: !!checked };
+      const isAnyExamChecked = Object.values(newItems).some(v => v);
+
+      // Regla: Si se selecciona CUALQUIER examen, 'No aplica' debe ser false (Requirement 3).
+      const newNoAplica = isAnyExamChecked ? false : ec.examenes_no_aplica;
+
+      return {
+        ...prev,
+        examenesComplementarios: {
+          ...ec,
+          examenes_no_aplica: newNoAplica,
+          items: newItems
         }
       };
     });
   };
 
-  /** Sección K: activar "No Aplica" — limpia ítems y observaciones, deshabilita edición de la sección */
-  const setNoAplicaEstudiosK = () => {
-    setFormData(prev => ({
-      ...prev,
-      examenesComplementarios: {
-        ...DEFAULT_EXAMENES_K(),
-        examenes_no_aplica: true,
-        items: Object.fromEntries([...Array(16)].map((_, i) => [i + 1, false])),
-        observaciones: ''
+  /**
+   * Sección K: Maneja el toggle de 'No aplica'.
+   * Si se marca 'No aplica' (currentNoAplica === false -> true): Resetea todos los ítems a false (Requirement 2).
+   * Si se desmarca 'No aplica' (currentNoAplica === true -> false): Simplemente desactiva el flag, los ítems quedan como estaban (todos false si se venía de 'No aplica').
+   */
+  const handleNoAplicaChange = () => {
+    setFormData(prev => {
+      const ec = prev.examenesComplementarios || DEFAULT_EXAMENES_K();
+      const currentNoAplica = !!ec.examenes_no_aplica;
+      
+      if (currentNoAplica) { // Se está desmarcando 'No aplica' (Habilitar edición)
+        return {
+          ...prev,
+          examenesComplementarios: {
+            ...ec,
+            examenes_no_aplica: false, // Se habilita la edición (Requirement 5)
+            observaciones: '' // Limpiar observaciones también al desmarcar por consistencia
+            // Los ítems se mantienen en su estado (todos false si venían de 'No aplica'), y serán actualizados por handleExamenChange si se marcan.
+          }
+        };
+      } else { // Se está marcando 'No aplica' (Aplicar exclusión estricta - Requirement 2)
+        return {
+          ...prev,
+          examenesComplementarios: {
+            ...DEFAULT_EXAMENES_K(), // Resetea items a false y observaciones a ''
+            examenes_no_aplica: true, // Fuerza 'No aplica' a true
+            observaciones: '' // Asegurar que la observación se limpie también
+          }
+        };
       }
-    }));
+    });
   };
 
   /** Notificar al padre cambio en alergias (para alerta en header del paciente). Evita sobrescribir con [] en el primer render antes de cargar desde atencionData. */
@@ -1376,7 +1437,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                       <input
                         type="checkbox"
                         checked={noAplica}
-                        onChange={setNoAplicaEstudiosK}
+                        onChange={handleNoAplicaChange}
                         disabled={readOnly}
                         className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       />
@@ -1398,7 +1459,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                           <input
                             type="checkbox"
                             checked={!!items[item.id]}
-                            onChange={(e) => setExamenItemK(item.id, e.target.checked)}
+                            onChange={(e) => handleExamenChange(e.target.checked, item.id)}
                             disabled={deshabilitarK}
                             className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                           />
@@ -1439,7 +1500,7 @@ const AtencionEmergenciaForm = ({ admisionData, atencionData, signosVitalesData,
                           <input
                             type="checkbox"
                             checked={!!items[item.id]}
-                            onChange={(e) => setExamenItemK(item.id, e.target.checked)}
+                            onChange={(e) => handleExamenChange(e.target.checked, item.id)}
                             disabled={deshabilitarK}
                             className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                           />
