@@ -1,5 +1,5 @@
 const express = require('express');
-const router = require('express').Router();
+const router = express.Router();
 const multer = require('multer'); // Importar multer
 const authController = require('../controllers/authController');
 const usuariosController = require('../controllers/usuariosController'); // Importar el objeto completo
@@ -36,6 +36,12 @@ router.post('/recuperar', authController.recuperar);
 
 // Restablecer contraseña (desde token)
 router.post('/restablecer/:token', authController.restablecer);
+
+// Ruta para desbloqueo híbrido (Zimbra OTP o Firma Digital)
+router.post('/desbloquear', upload.single('p12'), authController.desbloquearCuenta);
+
+// Ruta para cambiar contraseña (autenticado)
+router.post('/cambiar-contrasena', validarToken, authController.cambiarContrasena);
 
 // Nuevas rutas para aprobación de usuarios
 router.get('/pendientes', authController.usuariosPendientes);

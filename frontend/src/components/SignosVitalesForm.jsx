@@ -35,6 +35,8 @@ export default function SignosVitalesForm() {
   const [showTriajeModal, setShowTriajeModal] = useState(false); // Estado para controlar la visibilidad del modal
   const [validationErrors, setValidationErrors] = useState({}); // Nuevo estado para errores de validación
   const [isPerimetroCefalicoRequired, setIsPerimetroCefalicoRequired] = useState(true); // Nuevo estado para controlar si el perímetro cefálico es requerido
+  const [isPresionArterialRequired, setIsPresionArterialRequired] = useState(true); // Nuevo estado para controlar si la presión arterial es requerida
+  const [isPesoTallaRequired, setIsPesoTallaRequired] = useState(true); // Nuevo estado para controlar si peso/talla son requeridos
   const [isFormDisabled, setIsFormDisabled] = useState(false); // Nuevo estado para deshabilitar el formulario
   const [triajeCalculadoBackend, setTriajeCalculadoBackend] = useState(null); // Estado para el triaje calculado por el backend
   const [triajeSeleccionadoProfesional, setTriajeSeleccionadoProfesional] = useState(null); // Estado para el triaje seleccionado por el profesional
@@ -159,16 +161,26 @@ export default function SignosVitalesForm() {
             const diffMeses = (hoy.getFullYear() - fechaNacimiento.getFullYear()) * 12 + (hoy.getMonth() - fechaNacimiento.getMonth());
             
             console.log(`[SignosVitalesForm] Fecha de Nacimiento: ${data.Paciente.fecha_nacimiento}, Meses de edad: ${diffMeses}`); // Debugging
-            // Si el paciente tiene más de 36 meses, el perímetro cefálico no es requerido
+            // 1. Perímetro Cefálico: Obligatorio solo si entre 0 y 3 años (36 meses)
             setIsPerimetroCefalicoRequired(diffMeses <= 36);
+            
+            // 2. Presión Arterial: Deja de ser obligatorio si menor de 3 años
+            setIsPresionArterialRequired(diffMeses >= 36);
           } else {
-            console.log('[SignosVitalesForm] Fecha de nacimiento del paciente es inválida. Perímetro cefálico no requerido por defecto.'); // Debugging
-            setIsPerimetroCefalicoRequired(false); // Si la fecha de nacimiento es inválida, asumir que no es requerido
+            console.log('[SignosVitalesForm] Fecha de nacimiento del paciente es inválida. Aplicando obligatoriedad por defecto.'); // Debugging
+            setIsPerimetroCefalicoRequired(false);
+            setIsPresionArterialRequired(true);
           }
         } else {
-          console.log('[SignosVitalesForm] Fecha de nacimiento del paciente no disponible. Perímetro cefálico no requerido por defecto.'); // Debugging
-          setIsPerimetroCefalicoRequired(false); // Si no hay fecha de nacimiento, asumir que no es requerido
+          console.log('[SignosVitalesForm] Fecha de nacimiento del paciente no disponible. Aplicando obligatoriedad por defecto.'); // Debugging
+          setIsPerimetroCefalicoRequired(false);
+          setIsPresionArterialRequired(true);
         }
+
+        // 3. Peso y Talla: Obligatorios solo en Triage inicial; opcionales en re-evaluaciones
+        // Si el estado actual es ADMITIDO, significa que es el triage inicial
+        const esTriageInicial = data.estadoPaciente === 'ADMITIDO';
+        setIsPesoTallaRequired(esTriageInicial);
         
       } catch (error) {
         console.error('Error al obtener datos del paciente para signos vitales:', error);
@@ -219,6 +231,8 @@ export default function SignosVitalesForm() {
         }
       } else if (value !== '') {
         error = 'Formato de Presión Arterial inválido (ej: 120/80).';
+      } else if (isPresionArterialRequired && value === '') {
+        error = 'La presión arterial es requerida.';
       }
     } else if (name === 'perimetroCefalico') {
       if (isPerimetroCefalicoRequired && value === '') {
@@ -226,6 +240,9 @@ export default function SignosVitalesForm() {
       } else if (value !== '' && (isNaN(numValue) || numValue < VALIDATION_RANGES.perimetroCefalico.min || numValue > VALIDATION_RANGES.perimetroCefalico.max)) {
         error = VALIDATION_RANGES.perimetroCefalico.message;
       }
+    }
+    else if ((name === 'peso' || name === 'talla') && isPesoTallaRequired && value === '') {
+      error = `El ${name} es obligatorio en el Triage inicial.`;
     }
     else if (VALIDATION_RANGES[name] && value !== '') {
       if (isNaN(numValue) || numValue < VALIDATION_RANGES[name].min || numValue > VALIDATION_RANGES[name].max) {
@@ -386,9 +403,15 @@ export default function SignosVitalesForm() {
           continue;
         }
 
-        // Excluir perimetroCefalico de la validación de campo vacío si no es requerido
-        if (key === 'perimetroCefalico' && !isPerimetroCefalicoRequired) {
-          continue; // No es obligatorio, así que no lo validamos si está vacío
+        // Exclusiones de obligatoriedad según lógica dinámica
+        if (key === 'perimetroCefalico' && !isPerimetroCefalicoRequired && formData[key] === '') {
+          continue;
+        }
+        if (key === 'presionArterial' && !isPresionArterialRequired && formData[key] === '') {
+          continue;
+        }
+        if ((key === 'peso' || key === 'talla') && !isPesoTallaRequired && formData[key] === '') {
+          continue;
         }
 
         // Validar que los campos obligatorios no estén vacíos
@@ -629,32 +652,53 @@ export default function SignosVitalesForm() {
         {/* Campos de Signos Vitales */}
         <fieldset disabled={formData.sinConstantesVitales || isFormDisabled} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div>
-            <label htmlFor="temperatura" className="block text-sm font-medium text-gray-700">Temperatura (°C):</label>
+            <label htmlFor="temperatura" className="block text-sm font-medium text-gray-700">
+              Temperatura (°C): <span className="text-red-500 font-bold">*</span>
+            </label>
             <input type="number" step="0.1" id="temperatura" name="temperatura" value={formData.temperatura} onChange={handleChange} required={!formData.sinConstantesVitales && !isFormDisabled} className="mt-1 block w-2/3 border border-gray-300 rounded-md shadow-sm p-2" />
             {validationErrors.temperatura && <p className="text-red-500 text-xs mt-1">{validationErrors.temperatura}</p>}
           </div>
           <div>
-            <label htmlFor="presionArterial" className="block text-sm font-medium text-gray-700">Presión Arterial (mmHg):</label>
-            <input type="text" id="presionArterial" name="presionArterial" value={formData.presionArterial} onChange={handleChange} required={!formData.sinConstantesVitales && !isFormDisabled} className="mt-1 block w-2/3 border border-gray-300 rounded-md shadow-sm p-2" placeholder="Ej: 120/80" />
+            <label htmlFor="presionArterial" className={`block text-sm font-medium ${isPresionArterialRequired ? 'text-gray-700' : 'text-gray-400 font-normal'}`}>
+              Presión Arterial (mmHg): {isPresionArterialRequired && <span className="text-red-500 font-bold">*</span>}
+            </label>
+            <input
+              type="text"
+              id="presionArterial"
+              name="presionArterial"
+              value={formData.presionArterial}
+              onChange={handleChange}
+              required={!formData.sinConstantesVitales && isPresionArterialRequired && !isFormDisabled}
+              className={`mt-1 block w-2/3 border rounded-md shadow-sm p-2 ${isPresionArterialRequired ? 'border-gray-300' : 'border-gray-200 bg-gray-50'}`}
+              placeholder="Ej: 120/80"
+            />
             {validationErrors.presionArterial && <p className="text-red-500 text-xs mt-1">{validationErrors.presionArterial}</p>}
           </div>
           <div>
-            <label htmlFor="frecuenciaCardiaca" className="block text-sm font-medium text-gray-700">Frecuencia Cardíaca (/min):</label>
+            <label htmlFor="frecuenciaCardiaca" className="block text-sm font-medium text-gray-700">
+              Frecuencia Cardíaca (/min): <span className="text-red-500 font-bold">*</span>
+            </label>
             <input type="number" id="frecuenciaCardiaca" name="frecuenciaCardiaca" value={formData.frecuenciaCardiaca} onChange={handleChange} required={!formData.sinConstantesVitales && !isFormDisabled} className="mt-1 block w-2/3 border border-gray-300 rounded-md shadow-sm p-2" />
             {validationErrors.frecuenciaCardiaca && <p className="text-red-500 text-xs mt-1">{validationErrors.frecuenciaCardiaca}</p>}
           </div>
           <div>
-            <label htmlFor="frecuenciaRespiratoria" className="block text-sm font-medium text-gray-700">Frecuencia Respiratoria (/min):</label>
+            <label htmlFor="frecuenciaRespiratoria" className="block text-sm font-medium text-gray-700">
+              Frecuencia Respiratoria (/min): <span className="text-red-500 font-bold">*</span>
+            </label>
             <input type="number" id="frecuenciaRespiratoria" name="frecuenciaRespiratoria" value={formData.frecuenciaRespiratoria} onChange={handleChange} required={!formData.sinConstantesVitales && !isFormDisabled} className="mt-1 block w-2/3 border border-gray-300 rounded-md shadow-sm p-2" />
             {validationErrors.frecuenciaRespiratoria && <p className="text-red-500 text-xs mt-1">{validationErrors.frecuenciaRespiratoria}</p>}
           </div>
           <div>
-            <label htmlFor="saturacionOxigeno" className="block text-sm font-medium text-gray-700">Saturación de Oxígeno (%):</label>
+            <label htmlFor="saturacionOxigeno" className="block text-sm font-medium text-gray-700">
+              Saturación de Oxígeno (%): <span className="text-red-500 font-bold">*</span>
+            </label>
             <input type="number" step="0.1" id="saturacionOxigeno" name="saturacionOxigeno" value={formData.saturacionOxigeno} onChange={handleChange} required={!formData.sinConstantesVitales && !isFormDisabled} className="mt-1 block w-2/3 border border-gray-300 rounded-md shadow-sm p-2" />
             {validationErrors.saturacionOxigeno && <p className="text-red-500 text-xs mt-1">{validationErrors.saturacionOxigeno}</p>}
           </div>
           <div>
-            <label htmlFor="perimetroCefalico" className="block text-sm font-medium text-gray-700">Perímetro Cefálico (cm):</label>
+            <label htmlFor="perimetroCefalico" className={`block text-sm font-medium ${isPerimetroCefalicoRequired ? 'text-gray-700' : 'text-gray-400 font-normal'}`}>
+              Perímetro Cefálico (cm): {isPerimetroCefalicoRequired && <span className="text-red-500 font-bold">*</span>}
+            </label>
             <input
               type="number"
               step="0.1"
@@ -663,23 +707,48 @@ export default function SignosVitalesForm() {
               value={formData.perimetroCefalico}
               onChange={handleChange}
               required={!formData.sinConstantesVitales && isPerimetroCefalicoRequired && !isFormDisabled}
-              disabled={!isPerimetroCefalicoRequired || isFormDisabled} // Deshabilitar si no es requerido o si el formulario está deshabilitado
-              className="mt-1 block w-2/3 border border-gray-300 rounded-md shadow-sm p-2"
+              disabled={!isPerimetroCefalicoRequired && formData.perimetroCefalico === '' && isFormDisabled}
+              className={`mt-1 block w-2/3 border rounded-md shadow-sm p-2 ${isPerimetroCefalicoRequired ? 'border-gray-300' : 'border-gray-200 bg-gray-50'}`}
             />
             {validationErrors.perimetroCefalico && <p className="text-red-500 text-xs mt-1">{validationErrors.perimetroCefalico}</p>}
             {!isPerimetroCefalicoRequired && (
-              <p className="text-gray-500 text-xs mt-1">No requerido para pacientes mayores de 36 meses.</p>
+              <p className="text-gray-400 text-xs mt-1 italic">No requerido (Paciente {'>'} 36 meses).</p>
             )}
           </div>
           <div>
-            <label htmlFor="peso" className="block text-sm font-medium text-gray-700">Peso (kg):</label>
-            <input type="number" step="0.1" id="peso" name="peso" value={formData.peso} onChange={handleChange} required={!formData.sinConstantesVitales && !isFormDisabled} className="mt-1 block w-2/3 border border-gray-300 rounded-md shadow-sm p-2" />
+            <label htmlFor="peso" className={`block text-sm font-medium ${isPesoTallaRequired ? 'text-gray-700' : 'text-gray-400 font-normal'}`}>
+              Peso (kg): {isPesoTallaRequired && <span className="text-red-500 font-bold">*</span>}
+            </label>
+            <input
+              type="number"
+              step="0.1"
+              id="peso"
+              name="peso"
+              value={formData.peso}
+              onChange={handleChange}
+              required={!formData.sinConstantesVitales && isPesoTallaRequired && !isFormDisabled}
+              className={`mt-1 block w-2/3 border rounded-md shadow-sm p-2 ${isPesoTallaRequired ? 'border-gray-300' : 'border-gray-200 bg-gray-50'}`}
+            />
             {validationErrors.peso && <p className="text-red-500 text-xs mt-1">{validationErrors.peso}</p>}
           </div>
           <div>
-            <label htmlFor="talla" className="block text-sm font-medium text-gray-700">Talla (cm):</label>
-            <input type="number" step="0.1" id="talla" name="talla" value={formData.talla} onChange={handleChange} required={!formData.sinConstantesVitales && !isFormDisabled} className="mt-1 block w-2/3 border border-gray-300 rounded-md shadow-sm p-2" />
+            <label htmlFor="talla" className={`block text-sm font-medium ${isPesoTallaRequired ? 'text-gray-700' : 'text-gray-400 font-normal'}`}>
+              Talla (cm): {isPesoTallaRequired && <span className="text-red-500 font-bold">*</span>}
+            </label>
+            <input
+              type="number"
+              step="0.1"
+              id="talla"
+              name="talla"
+              value={formData.talla}
+              onChange={handleChange}
+              required={!formData.sinConstantesVitales && isPesoTallaRequired && !isFormDisabled}
+              className={`mt-1 block w-2/3 border rounded-md shadow-sm p-2 ${isPesoTallaRequired ? 'border-gray-300' : 'border-gray-200 bg-gray-50'}`}
+            />
             {validationErrors.talla && <p className="text-red-500 text-xs mt-1">{validationErrors.talla}</p>}
+            {!isPesoTallaRequired && (
+              <p className="text-gray-400 text-xs mt-1 italic">Opcional en re-evaluación.</p>
+            )}
           </div>
           {imc && (
             <div className="text-sm font-medium text-gray-700 col-span-full">

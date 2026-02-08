@@ -51,6 +51,20 @@ const Usuario = sequelize.define('Usuario', {
     type: DataTypes.BOOLEAN,
     defaultValue: false
   },
+  intentos_fallidos: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+    allowNull: false
+  },
+  estado_cuenta: {
+    type: DataTypes.ENUM('ACTIVO', 'BLOQUEADO'),
+    defaultValue: 'ACTIVO',
+    allowNull: false
+  },
+  ultimo_bloqueo: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
   firma_p12: {
     type: DataTypes.BLOB('long'), // LONGBLOB en MySQL
     allowNull: true

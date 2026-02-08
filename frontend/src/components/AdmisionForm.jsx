@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import moment from 'moment-timezone'; // Re-importar moment-timezone
 import axios from 'axios';
 import ConfirmModal from './ConfirmModal';
 import AutoCompleteInput from './AutoCompleteInput';
+import { validarCedulaEcuador } from '../utils/validaciones';
 
 export default function AdmisionForm() {
   const navigate = useNavigate();
@@ -102,33 +103,7 @@ export default function AdmisionForm() {
 
   // Función para validar cédula ecuatoriana
   const validarCedulaEcuatoriana = (cedula) => {
-    if (cedula.length !== 10) {
-      return false;
-    }
-
-    const provincia = parseInt(cedula.substring(0, 2), 10);
-    if (provincia < 1 || provincia > 24) {
-      return false;
-    }
-
-    const digitos = cedula.split('').map(Number);
-    const ultimoDigito = digitos[9];
-    let suma = 0;
-
-    for (let i = 0; i < 9; i++) {
-      let digito = digitos[i];
-      if (i % 2 === 0) { // Posiciones impares (0, 2, 4, 6, 8)
-        digito *= 2;
-        if (digito > 9) {
-          digito -= 9;
-        }
-      }
-      suma += digito;
-    }
-
-    const digitoVerificador = suma % 10 === 0 ? 0 : 10 - (suma % 10);
-
-    return digitoVerificador === ultimoDigito;
+    return validarCedulaEcuador(cedula);
   };
 
   const calculateAge = (birthDateTimeString) => {
@@ -616,168 +591,140 @@ export default function AdmisionForm() {
     }
   };
 
-  const handleNumeroIdentificacionBlur = async () => {
-    const { tipoIdentificacion, numeroIdentificacion } = formData;
-
-    if (tipoIdentificacion === 'Cedula de Identidad') {
-      if (!numeroIdentificacion) {
-        alert('Por favor, ingrese el número de identificación.');
-        setPacienteEncontrado(false);
-        return;
+  const buscarPacienteAutomatico = useCallback(async (numeroIdentificacion) => {
+    if (!validarCedulaEcuatoriana(numeroIdentificacion)) {
+      setPacienteEncontrado(false);
+      // Solo limpiar si tenía datos previos o si se borró la cédula
+      if (pacienteIdExistente) {
+        limpiarFormularioManteniedoIdentificacion(numeroIdentificacion);
       }
-      if (!validarCedulaEcuatoriana(numeroIdentificacion)) {
-        alert('Número de cédula ecuatoriana inválido.');
-        setPacienteEncontrado(false);
-        limpiarFormulario(); // Limpiar campos relacionados si la cédula es inválida
-        return;
-      }
+      return;
+    }
 
-      try {
-        const response = await fetch(`http://localhost:3001/usuarios/buscarPaciente/${numeroIdentificacion}`);
-        if (response.ok) {
-          const responseData = await response.json();
-          if (responseData.paciente) { // Acceder a responseData.paciente
-            alert(responseData.message); // Mostrar el mensaje del backend
+    setIsSearchingPatient(true);
+    try {
+      const response = await fetch(`http://localhost:3001/usuarios/buscarPaciente/${numeroIdentificacion}`);
+      if (response.ok) {
+        const responseData = await response.json();
+        if (responseData.paciente) {
+          const pacienteData = responseData.paciente;
+          setPacienteIdExistente(pacienteData.id);
 
-            const pacienteData = responseData.paciente; // Usar la variable correcta
-            setPacienteIdExistente(pacienteData.id); // Guardar el ID del paciente encontrado
-            console.log('pacienteData.fecha_nacimiento recibido del backend:', pacienteData.fecha_nacimiento); // Nuevo log
+          let loadedProvinciaNacimiento = '';
+          let loadedCantonNacimiento = '';
+          let loadedParroquiaNacimiento = '';
+          let loadedLugarNacimiento = pacienteData.lugar_nacimiento || '';
 
-            let loadedProvinciaNacimiento = '';
-            let loadedCantonNacimiento = '';
-            let loadedParroquiaNacimiento = '';
-            let loadedLugarNacimiento = pacienteData.lugar_nacimiento || '';
+          if (pacienteData.Nacionalidad && pacienteData.Nacionalidad.nombre === 'Ecuatoriana') {
+            loadedProvinciaNacimiento = pacienteData.ProvinciaNacimiento?.nombre || '';
+            loadedCantonNacimiento = pacienteData.CantonNacimiento?.nombre || '';
+            loadedParroquiaNacimiento = pacienteData.ParroquiaNacimiento?.nombre || '';
 
-            if (pacienteData.Nacionalidad && pacienteData.Nacionalidad.nombre === 'Ecuatoriana') {
-              loadedProvinciaNacimiento = pacienteData.ProvinciaNacimiento?.nombre || '';
-              loadedCantonNacimiento = pacienteData.CantonNacimiento?.nombre || '';
-              loadedParroquiaNacimiento = pacienteData.ParroquiaNacimiento?.nombre || '';
+            let parts = [];
+            if (loadedProvinciaNacimiento) parts.push(loadedProvinciaNacimiento);
+            if (loadedCantonNacimiento) parts.push(loadedCantonNacimiento);
+            if (loadedParroquiaNacimiento) parts.push(loadedParroquiaNacimiento);
+            loadedLugarNacimiento = parts.join('/');
+          }
 
-              // Reconstruir lugarNacimiento directamente con los nombres cargados
-              let parts = [];
-              if (loadedProvinciaNacimiento) parts.push(loadedProvinciaNacimiento);
-              if (loadedCantonNacimiento) parts.push(loadedCantonNacimiento);
-              if (loadedParroquiaNacimiento) parts.push(loadedParroquiaNacimiento);
-              loadedLugarNacimiento = parts.join('/');
-            }
+          setFormData(prev => ({
+            ...prev,
+            primerApellido: pacienteData.primer_apellido || '',
+            segundoApellido: pacienteData.segundo_apellido || '',
+            primerNombre: pacienteData.primer_nombre || '',
+            segundoNombre: pacienteData.segundo_nombre || '',
+            estadoCivil: pacienteData.EstadoCivil ? pacienteData.EstadoCivil.nombre : '',
+            sexo: pacienteData.Sexo ? pacienteData.Sexo.nombre : '',
+            telefono: pacienteData.DatosAdicionalesPaciente ? pacienteData.DatosAdicionalesPaciente.telefono : '',
+            celular: pacienteData.DatosAdicionalesPaciente ? pacienteData.DatosAdicionalesPaciente.celular : '',
+            correoElectronico: pacienteData.DatosAdicionalesPaciente ? pacienteData.DatosAdicionalesPaciente.correo_electronico : '',
+            nacionalidad: pacienteData.Nacionalidad ? pacienteData.Nacionalidad.nombre : '',
+            lugarNacimiento: loadedLugarNacimiento,
+            provinciaNacimiento: loadedProvinciaNacimiento,
+            cantonNacimiento: loadedCantonNacimiento,
+            parroquiaNacimiento: loadedParroquiaNacimiento,
+            fechaNacimiento: pacienteData.fecha_nacimiento ? `${moment.utc(pacienteData.fecha_nacimiento).format('YYYY-MM-DD')}T${pacienteData.Partos && pacienteData.Partos.length > 0 && pacienteData.Partos[0].hora_parto ? pacienteData.Partos[0].hora_parto.substring(0, 5) : '00:00'}` : '',
+            cedulaRepresentante: pacienteData.Representantes && pacienteData.Representantes.length > 0 ? pacienteData.Representantes[0].cedula_representante : '',
+            apellidosNombresRepresentante: pacienteData.Representantes && pacienteData.Representantes.length > 0 ? pacienteData.Representantes[0].apellidos_nombres_representante : '',
+            parentescoRepresentanteNacimiento: pacienteData.Representantes && pacienteData.Representantes.length > 0 && pacienteData.Representantes[0].Parentesco ? pacienteData.Representantes[0].Parentesco.nombre : '',
+            paisResidencia: pacienteData.Residencia ? pacienteData.Residencia.pais_residencia : '',
+            provinciaResidencia: pacienteData.Residencia && pacienteData.Residencia.Provincia ? pacienteData.Residencia.Provincia.nombre : '',
+            cantonResidencia: pacienteData.Residencia && pacienteData.Residencia.Canton ? pacienteData.Residencia.Canton.nombre : '',
+            parroquiaResidencia: pacienteData.Residencia && pacienteData.Residencia.Parroquia ? pacienteData.Residencia.Parroquia.nombre : '',
+            callePrincipal: pacienteData.Residencia ? pacienteData.Residencia.calle_principal : '',
+            calleSecundaria: pacienteData.Residencia ? pacienteData.Residencia.calle_secundaria : '',
+            barrioResidencia: pacienteData.Residencia ? pacienteData.Residencia.barrio_residencia : '',
+            referenciaResidencia: pacienteData.Residencia ? pacienteData.Residencia.referencia_residencia : '',
+            autoidentificacionEtnica: pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.AutoidentificacionEtnica ? pacienteData.DatosAdicionalesPaciente.AutoidentificacionEtnica.nombre : '',
+            nacionalidadPueblos: pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.NacionalidadPueblo ? pacienteData.DatosAdicionalesPaciente.NacionalidadPueblo.nombre : '',
+            puebloKichwa: pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.PuebloKichwa ? pacienteData.DatosAdicionalesPaciente.PuebloKichwa.nombre : '',
+            nivelEducacion: pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.NivelEducacionPaciente ? pacienteData.DatosAdicionalesPaciente.NivelEducacionPaciente.nombre : '',
+            gradoNivelEducacion: pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.GradoNivelEducacion ? pacienteData.DatosAdicionalesPaciente.GradoNivelEducacion.nombre : '',
+            tipoEmpresaTrabajo: pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.TipoEmpresaTrabajo ? pacienteData.DatosAdicionalesPaciente.TipoEmpresaTrabajo.nombre : '',
+            ocupacionProfesionPrincipal: pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.OcupacionProfesion ? pacienteData.DatosAdicionalesPaciente.OcupacionProfesion.nombre : '',
+            seguroSaludPrincipal: pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.SeguroSalud ? pacienteData.DatosAdicionalesPaciente.SeguroSalud.nombre : '',
+            tipoBonoRecibe: pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.TipoBono ? pacienteData.DatosAdicionalesPaciente.TipoBono.nombre : '',
+            tieneDiscapacidad: pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.TieneDiscapacidadPaciente ? pacienteData.DatosAdicionalesPaciente.TieneDiscapacidadPaciente.nombre : '',
+            tipoDiscapacidad: pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.TipoDiscapacidad ? pacienteData.DatosAdicionalesPaciente.TipoDiscapacidad.nombre : '',
+            contactoEnCasoNecesario: pacienteData.ContactoEmergencia ? pacienteData.ContactoEmergencia.nombre_contacto : '',
+            parentescoContacto: pacienteData.ContactoEmergencia && pacienteData.ContactoEmergencia.Parentesco ? pacienteData.ContactoEmergencia.Parentesco.nombre : '',
+            telefonoContacto: pacienteData.ContactoEmergencia ? pacienteData.ContactoEmergencia.telefono : '',
+            direccionContacto: pacienteData.ContactoEmergencia ? pacienteData.ContactoEmergencia.direccion : '',
+          }));
 
-            setFormData(prev => {
-              const newFormData = {
-                ...prev,
-                primerApellido: pacienteData.primer_apellido || '',
-                segundoApellido: pacienteData.segundo_apellido || '',
-                primerNombre: pacienteData.primer_nombre || '',
-                segundoNombre: pacienteData.segundo_nombre || '',
-                estadoCivil: pacienteData.EstadoCivil ? pacienteData.EstadoCivil.nombre : '',
-                sexo: pacienteData.Sexo ? pacienteData.Sexo.nombre : '',
-                telefono: pacienteData.DatosAdicionalesPaciente ? pacienteData.DatosAdicionalesPaciente.telefono : '',
-                celular: pacienteData.DatosAdicionalesPaciente ? pacienteData.DatosAdicionalesPaciente.celular : '',
-                correoElectronico: pacienteData.DatosAdicionalesPaciente ? pacienteData.DatosAdicionalesPaciente.correo_electronico : '',
-                nacionalidad: pacienteData.Nacionalidad ? pacienteData.Nacionalidad.nombre : '',
-                lugarNacimiento: loadedLugarNacimiento, // Usar el lugarNacimiento reconstruido o el original
-                provinciaNacimiento: loadedProvinciaNacimiento,
-                cantonNacimiento: loadedCantonNacimiento,
-                parroquiaNacimiento: loadedParroquiaNacimiento,
-                fechaNacimiento: pacienteData.fecha_nacimiento ? `${moment.utc(pacienteData.fecha_nacimiento).format('YYYY-MM-DD')}T${pacienteData.Partos && pacienteData.Partos.length > 0 && pacienteData.Partos[0].hora_parto ? pacienteData.Partos[0].hora_parto.substring(0, 5) : '00:00'}` : '', // Formato YYYY-MM-DDTHH:MM
-                cedulaRepresentante: pacienteData.Representantes && pacienteData.Representantes.length > 0 ? pacienteData.Representantes[0].cedula_representante : '',
-                apellidosNombresRepresentante: pacienteData.Representantes && pacienteData.Representantes.length > 0 ? pacienteData.Representantes[0].apellidos_nombres_representante : '',
-                parentescoRepresentanteNacimiento: pacienteData.Representantes && pacienteData.Representantes.length > 0 && pacienteData.Representantes[0].Parentesco ? pacienteData.Representantes[0].Parentesco.nombre : '',
-                paisResidencia: pacienteData.Residencia ? pacienteData.Residencia.pais_residencia : '',
-                provinciaResidencia: pacienteData.Residencia && pacienteData.Residencia.Provincia ? pacienteData.Residencia.Provincia.nombre : '',
-                // cantonResidencia y parroquiaResidencia se cargarán en los useEffects
-                cantonResidencia: pacienteData.Residencia && pacienteData.Residencia.Canton ? pacienteData.Residencia.Canton.nombre : '',
-                parroquiaResidencia: pacienteData.Residencia && pacienteData.Residencia.Parroquia ? pacienteData.Residencia.Parroquia.nombre : '',
-                callePrincipal: pacienteData.Residencia ? pacienteData.Residencia.calle_principal : '',
-                calleSecundaria: pacienteData.Residencia ? pacienteData.Residencia.calle_secundaria : '',
-                barrioResidencia: pacienteData.Residencia ? pacienteData.Residencia.barrio_residencia : '',
-                referenciaResidencia: pacienteData.Residencia ? pacienteData.Residencia.referencia_residencia : '',
-                autoidentificacionEtnica: pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.AutoidentificacionEtnica ? pacienteData.DatosAdicionalesPaciente.AutoidentificacionEtnica.nombre : '',
-                nacionalidadPueblos: pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.NacionalidadPueblo ? pacienteData.DatosAdicionalesPaciente.NacionalidadPueblo.nombre : '',
-                puebloKichwa: pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.PuebloKichwa ? pacienteData.DatosAdicionalesPaciente.PuebloKichwa.nombre : '',
-                nivelEducacion: pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.NivelEducacionPaciente ? pacienteData.DatosAdicionalesPaciente.NivelEducacionPaciente.nombre : '',
-                gradoNivelEducacion: pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.GradoNivelEducacion ? pacienteData.DatosAdicionalesPaciente.GradoNivelEducacion.nombre : '',
-                tipoEmpresaTrabajo: pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.TipoEmpresaTrabajo ? pacienteData.DatosAdicionalesPaciente.TipoEmpresaTrabajo.nombre : '',
-                ocupacionProfesionPrincipal: pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.OcupacionProfesion ? pacienteData.DatosAdicionalesPaciente.OcupacionProfesion.nombre : '',
-                seguroSaludPrincipal: pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.SeguroSalud ? pacienteData.DatosAdicionalesPaciente.SeguroSalud.nombre : '',
-                tipoBonoRecibe: pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.TipoBono ? pacienteData.DatosAdicionalesPaciente.TipoBono.nombre : '',
-                tieneDiscapacidad: pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.TieneDiscapacidadPaciente ? pacienteData.DatosAdicionalesPaciente.TieneDiscapacidadPaciente.nombre : '',
-                tipoDiscapacidad: pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.TipoDiscapacidad ? pacienteData.DatosAdicionalesPaciente.TipoDiscapacidad.nombre : '',
-                contactoEnCasoNecesario: pacienteData.ContactoEmergencia ? pacienteData.ContactoEmergencia.nombre_contacto : '',
-                parentescoContacto: pacienteData.ContactoEmergencia && pacienteData.ContactoEmergencia.Parentesco ? pacienteData.ContactoEmergencia.Parentesco.nombre : '',
-                telefonoContacto: pacienteData.ContactoEmergencia ? pacienteData.ContactoEmergencia.telefono : '',
-                direccionContacto: pacienteData.ContactoEmergencia ? pacienteData.ContactoEmergencia.direccion : '',
-                // Los campos de Forma de Llegada no se cargan al buscar por número de identificación
-                // formaLlegada: pacienteData.Admisiones && pacienteData.Admisiones.length > 0 && pacienteData.Admisiones[0].FormaLlegada ? pacienteData.Admisiones[0].FormaLlegada.nombre : '',
-                // fuenteInformacion: pacienteData.Admisiones && pacienteData.Admisiones.length > 0 && pacienteData.Admisiones[0].FuenteInformacion ? pacienteData.Admisiones[0].FuenteInformacion.nombre : '',
-                // institucionPersonaEntrega: pacienteData.Admisiones && pacienteData.Admisiones.length > 0 ? pacienteData.Admisiones[0].institucion_persona_entrega : '',
-                // telefonoEntrega: pacienteData.Admisiones && pacienteData.Admisiones.length > 0 ? pacienteData.Admisiones[0].telefono_entrega : '',
-              };
+          setPacienteEncontrado(true);
+          setIsFormEnabledForNewEntry(true);
+          setIsNacionalidadPueblosEnabled(pacienteData.DatosAdicionalesPaciente?.AutoidentificacionEtnica?.nombre === 'Indígena');
+          setIsPuebloKichwaEnabled(pacienteData.DatosAdicionalesPaciente?.NacionalidadPueblo?.nombre === 'Kichwa');
+          setIsTipoDiscapacidadEnabled(pacienteData.DatosAdicionalesPaciente?.TieneDiscapacidadPaciente?.nombre === 'Sí');
 
-              // Si la nacionalidad cargada no es ecuatoriana, limpiar los campos de ubicación de nacimiento
-              if (newFormData.nacionalidad !== 'Ecuatoriana') {
-                newFormData.provinciaNacimiento = '';
-                newFormData.cantonNacimiento = '';
-                newFormData.parroquiaNacimiento = '';
-                setCantonesEcuador([]);
-                setParroquiasEcuador([]);
-              }
-
-              return newFormData;
-            });
-            setPacienteEncontrado(true);
-            setIsFormEnabledForNewEntry(true); // Habilitar formulario para edición
-            // Actualizar estados de habilitación/deshabilitación
-            setIsNacionalidadPueblosEnabled(pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.AutoidentificacionEtnica && pacienteData.DatosAdicionalesPaciente.AutoidentificacionEtnica.nombre === 'Indígena');
-            setIsPuebloKichwaEnabled(pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.NacionalidadPueblo && pacienteData.DatosAdicionalesPaciente.NacionalidadPueblo.nombre === 'Kichwa');
-            setIsTipoDiscapacidadEnabled(pacienteData.DatosAdicionalesPaciente && pacienteData.DatosAdicionalesPaciente.TieneDiscapacidadPaciente && pacienteData.DatosAdicionalesPaciente.TieneDiscapacidadPaciente.nombre === 'Sí');
-            
-            // Lógica para edad y parto
-            if (pacienteData.fecha_nacimiento) {
-              const birthDateObj = new Date(pacienteData.fecha_nacimiento);
-              const diffMillis = new Date().getTime() - birthDateObj.getTime();
-              const diffDays = Math.floor(diffMillis / (1000 * 60 * 60 * 24));
-              setIsUnderTwoYears(new Date().getFullYear() - birthDateObj.getFullYear() < 2);
-              setShowPartoQuestion(diffDays <= 2);
-              setPartoEnCentroSalud(pacienteData.Partos && pacienteData.Partos.length > 0); // Asumir que si hay partos, fue en centro de salud
-              setCalculatedAgeInHours(Math.floor(diffMillis / (1000 * 60 * 60)).toString());
-              // Al cargar la hora del parto, asegurarse de que se extraiga correctamente sin desfases de zona horaria
-              setPartoTime(pacienteData.Partos && pacienteData.Partos.length > 0 && pacienteData.Partos[0].hora_parto ? pacienteData.Partos[0].hora_parto.substring(0, 5) : '');
-              setHasAskedPartoQuestion(true); // Para evitar que el modal de parto se dispare de nuevo
-            }
-
-            console.log('Datos del paciente cargados:', pacienteData);
-            console.log('Datos de Residencia cargados:', pacienteData.Residencia);
-            console.log('Provincia de Residencia (del pacienteData):', pacienteData.Residencia?.Provincia?.nombre);
-            console.log('Cantón de Residencia (del pacienteData):', pacienteData.Residencia?.Canton?.nombre);
-            console.log('Parroquia de Residencia (del pacienteData):', pacienteData.Residencia?.Parroquia?.nombre);
-            console.log('Estado Civil en formData:', pacienteData.EstadoCivil ? pacienteData.EstadoCivil.nombre : 'N/A');
-            console.log('Sexos en formData:', pacienteData.Sexo ? pacienteData.Sexo.nombre : 'N/A');
-            console.log('Lista de estados civiles disponibles:', estadosCiviles);
-            console.log('Lista de sexos disponibles:', sexos);
-
-          } else {
-            setModalMessage('Paciente no encontrado en la base de datos. ¿Desea ingresar un nuevo paciente?');
-            setIsModalOpen(true);
-            setPacienteEncontrado(false);
+          if (pacienteData.fecha_nacimiento) {
+            const birthDateObj = new Date(pacienteData.fecha_nacimiento);
+            const diffMillis = new Date().getTime() - birthDateObj.getTime();
+            const diffDays = Math.floor(diffMillis / (1000 * 60 * 60 * 24));
+            setIsUnderTwoYears(new Date().getFullYear() - birthDateObj.getFullYear() < 2);
+            setShowPartoQuestion(diffDays <= 2);
+            setPartoEnCentroSalud(pacienteData.Partos?.length > 0);
+            setCalculatedAgeInHours(Math.floor(diffMillis / (1000 * 60 * 60)).toString());
+            setPartoTime(pacienteData.Partos?.[0]?.hora_parto?.substring(0, 5) || '');
+            setHasAskedPartoQuestion(true);
           }
         } else {
-          if (response.status === 404) {
-            setModalMessage('Paciente no encontrado en la base de datos. ¿Desea ingresar un nuevo paciente?');
-            setIsModalOpen(true);
-            setPacienteEncontrado(false);
-          } else {
-            const errorData = await response.json();
-            alert(`Error al buscar paciente: ${errorData.message || response.statusText}`);
-            setPacienteEncontrado(false);
-            limpiarFormulario();
-          }
+          setPacienteEncontrado(false);
+          setPacienteIdExistente(null);
+          limpiarFormularioManteniedoIdentificacion(numeroIdentificacion);
+          setIsFormEnabledForNewEntry(true);
         }
-      } catch (error) {
-        console.error('Error en la búsqueda de paciente:', error);
-        alert('Error de conexión al buscar paciente. Por favor, intente de nuevo.');
+      } else {
         setPacienteEncontrado(false);
-        limpiarFormulario();
+        setPacienteIdExistente(null);
+        limpiarFormularioManteniedoIdentificacion(numeroIdentificacion);
+        setIsFormEnabledForNewEntry(true);
       }
+    } catch (error) {
+      console.error('Error en la búsqueda automática de paciente:', error);
+      setPacienteEncontrado(false);
+    } finally {
+      setIsSearchingPatient(false);
+    }
+  }, []);
+
+  // UseEffect para el debounce de la búsqueda por cédula
+  useEffect(() => {
+    const { tipoIdentificacion, numeroIdentificacion } = formData;
+    if (tipoIdentificacion === 'Cedula de Identidad' && numeroIdentificacion?.length === 10) {
+      const timer = setTimeout(() => {
+        buscarPacienteAutomatico(numeroIdentificacion);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [formData.numeroIdentificacion, formData.tipoIdentificacion, buscarPacienteAutomatico]);
+
+  const handleNumeroIdentificacionBlur = () => {
+    // Ya no es necesario el blur para la búsqueda, pero mantenemos la validación si el usuario sale del campo
+    const { tipoIdentificacion, numeroIdentificacion } = formData;
+    if (tipoIdentificacion === 'Cedula de Identidad' && numeroIdentificacion && !validarCedulaEcuatoriana(numeroIdentificacion)) {
+      alert('Número de cédula ecuatoriana inválido.');
     }
   };
 
@@ -884,6 +831,63 @@ export default function AdmisionForm() {
     setIsFormEnabledForNewEntry(false); // Deshabilitar el formulario al limpiar
     setPacienteEncontrado(false); // Asegurarse de que el estado sea falso
     setPacienteIdExistente(null); // Limpiar el ID del paciente existente al limpiar el formulario
+  };
+
+  const limpiarFormularioManteniedoIdentificacion = (numeroIdentificacion) => {
+    setFormData(prev => ({
+      ...prev,
+      primerApellido: '',
+      segundoApellido: '',
+      primerNombre: '',
+      segundoNombre: '',
+      estadoCivil: '',
+      sexo: '',
+      telefono: '',
+      celular: '',
+      correoElectronico: '',
+      nacionalidad: '',
+      lugarNacimiento: '',
+      provinciaNacimiento: '',
+      cantonNacimiento: '',
+      parroquiaNacimiento: '',
+      fechaNacimiento: '',
+      anioNacimiento: '',
+      mesNacimiento: '',
+      diaNacimiento: '',
+      cedulaRepresentante: '',
+      apellidosNombresRepresentante: '',
+      parentescoRepresentanteNacimiento: '',
+      paisResidencia: '',
+      provinciaResidencia: '',
+      cantonResidencia: '',
+      parroquiaResidencia: '',
+      callePrincipal: '',
+      calleSecundaria: '',
+      barrioResidencia: '',
+      referenciaResidencia: '',
+      autoidentificacionEtnica: '',
+      nacionalidadPueblos: '',
+      puebloKichwa: '',
+      nivelEducacion: '',
+      gradoNivelEducacion: '',
+      tipoEmpresaTrabajo: '',
+      ocupacionProfesionPrincipal: '',
+      seguroSaludPrincipal: '',
+      tipoBonoRecibe: '',
+      tieneDiscapacidad: '',
+      tipoDiscapacidad: '',
+      contactoEnCasoNecesario: '',
+      parentescoContacto: '',
+      telefonoContacto: '',
+      direccionContacto: '',
+      formaLlegada: '',
+      fuenteInformacion: '',
+      institucionPersonaEntrega: '',
+      telefonoEntrega: '',
+      motivoConsulta: ''
+    }));
+    setPacienteIdExistente(null);
+    setPacienteEncontrado(false);
   };
 
   const guardarFormulario = async () => {
@@ -1039,6 +1043,7 @@ export default function AdmisionForm() {
   const [pacienteEncontrado, setPacienteEncontrado] = useState(false); // Nuevo estado para controlar si se encontró un paciente
   const [isFormEnabledForNewEntry, setIsFormEnabledForNewEntry] = useState(false); // Nuevo estado para habilitar/deshabilitar el formulario
   const [isEntregaFieldsDisabled, setIsEntregaFieldsDisabled] = useState(false); // Nuevo estado para inhabilitar campos de entrega
+  const [isSearchingPatient, setIsSearchingPatient] = useState(false);
 
   // Nuevos estados para ubicaciones de residencia
   const [provinciasResidenciaList, setProvinciasResidenciaList] = useState([]);
@@ -1625,9 +1630,10 @@ export default function AdmisionForm() {
               onChange={handleChange}
               onBlur={handleNumeroIdentificacionBlur}
               required
-              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
-              disabled={formData.tipoIdentificacion === 'NoIdentificado' || pacienteEncontrado || !isFormEnabledForNewEntry}
+              className={`mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 ${isSearchingPatient ? 'bg-blue-50' : ''}`}
+              disabled={formData.tipoIdentificacion === 'NoIdentificado' || (pacienteEncontrado && formData.numeroIdentificacion.length === 10) || !isFormEnabledForNewEntry}
             />
+            {isSearchingPatient && <span className="text-xs text-blue-500 animate-pulse">Buscando paciente...</span>}
           </div>
           <div>
             <label htmlFor="primerApellido" className="block text-sm font-medium text-gray-700">Primer Apellido <span className="text-red-500">*</span>:</label>
