@@ -48,7 +48,7 @@ export default function RecuperarForm() {
         formData.append('password_firma', passwordFirma);
 
         try {
-            const res = await axios.post('http://localhost:3001/auth/validar-firma-recuperacion', formData, {
+            const res = await axios.post('http://190.214.55.52:3001/auth/validar-firma-recuperacion', formData, {
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
             setStep(5); // Ir a cambio de contraseña
@@ -66,8 +66,8 @@ export default function RecuperarForm() {
         setError(null);
 
         try {
-            const res = await axios.post('http://localhost:3001/auth/solicitar-otp', { 
-                cedula, 
+            const res = await axios.post('http://190.214.55.52:3001/auth/solicitar-otp', {
+                cedula,
                 correo: `${cedula}@13d07.mspz4.gob.ec` // Asumimos correo institucional basado en cédula según requerimiento
             });
             setTokenOtp(res.data.token_otp);
@@ -86,7 +86,7 @@ export default function RecuperarForm() {
         setError(null);
 
         try {
-            const res = await axios.post('http://localhost:3001/auth/validar-otp-recuperacion', {
+            const res = await axios.post('http://190.214.55.52:3001/auth/validar-otp-recuperacion', {
                 cedula,
                 otp,
                 token_otp: tokenOtp
@@ -110,7 +110,7 @@ export default function RecuperarForm() {
         setError(null);
 
         try {
-            await axios.post('http://localhost:3001/auth/reset-password-final', {
+            await axios.post('http://190.214.55.52:3001/auth/reset-password-final', {
                 cedula,
                 nuevaClave
             });

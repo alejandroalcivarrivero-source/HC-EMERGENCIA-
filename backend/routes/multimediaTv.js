@@ -1,26 +1,29 @@
 const express = require('express');
 const router = express.Router();
 const multimediaTvController = require('../controllers/multimediaTvController');
-const validarAdmin = require('../middlewares/validarAdmin');
 const validarToken = require('../middlewares/validarToken');
+const verifyRole = require('../middlewares/verifyRole');
 
 // Ruta pública: Obtener videos activos (para la pantalla de TV)
 router.get('/activos', multimediaTvController.obtenerVideosActivos);
 
-// Rutas protegidas para administradores
-// Obtener todos los videos (admin)
-router.get('/', validarAdmin, multimediaTvController.obtenerTodosLosVideos);
+// Rutas protegidas para Soporte TI (Rol 6)
+router.use(validarToken);
+router.use(verifyRole(6));
 
-// Crear video (admin) - puede incluir subida de archivo
-router.post('/', validarAdmin, multimediaTvController.uploadVideo, multimediaTvController.crearVideo);
+// Obtener todos los videos
+router.get('/', multimediaTvController.obtenerTodosLosVideos);
 
-// Actualizar video (admin) - puede incluir subida de archivo
-router.put('/:id', validarAdmin, multimediaTvController.uploadVideo, multimediaTvController.actualizarVideo);
+// Crear video - puede incluir subida de archivo
+router.post('/', multimediaTvController.uploadVideo, multimediaTvController.crearVideo);
 
-// Eliminar video (admin)
-router.delete('/:id', validarAdmin, multimediaTvController.eliminarVideo);
+// Actualizar video - puede incluir subida de archivo
+router.put('/:id', multimediaTvController.uploadVideo, multimediaTvController.actualizarVideo);
 
-// Actualizar orden de videos (admin)
-router.put('/orden/actualizar', validarAdmin, multimediaTvController.actualizarOrden);
+// Eliminar video
+router.delete('/:id', multimediaTvController.eliminarVideo);
+
+// Actualizar orden de videos
+router.put('/orden/actualizar', multimediaTvController.actualizarOrden);
 
 module.exports = router;

@@ -1,24 +1,25 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import axios from '../config/axios';
+import { useNotification } from '../contexts/NotificationContext';
 
 export default function LoginForm() {
   const [cedula, setCedula] = useState('');
   const [contrasena, setContrasena] = useState('');
   const [error, setError] = useState(null);
   const navigate = useNavigate();
+  const { showError } = useNotification();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
     try {
-      const res = await fetch('http://localhost:3001/usuarios/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cedula, contrasena })
+      const res = await axios.post('/usuarios/login', {
+        cedula,
+        contrasena
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error al iniciar sesión');
+      const data = res.data;
 
       localStorage.setItem('token', data.token);
       if (data.user) {
@@ -33,7 +34,22 @@ export default function LoginForm() {
         navigate('/dashboard');
       }
     } catch (err) {
-      setError(err.message);
+      const status = err.response?.status;
+      let errorMessage = 'Error al iniciar sesión. Por favor, intente de nuevo.';
+      let errorTitle = 'Error de Autenticación';
+
+      if (status === 404) {
+        errorTitle = 'Servicio no disponible';
+        errorMessage = 'El servicio de autenticación no está disponible temporalmente.';
+      } else if (status === 401) {
+        errorMessage = 'Cédula o contraseña incorrectas.';
+      } else if (err.message === 'Network Error') {
+        errorTitle = 'Error de Red';
+        errorMessage = 'No se pudo conectar con el servidor. Verifique su conexión.';
+      }
+
+      setError(errorMessage);
+      showError(errorTitle, errorMessage);
     }
   };
 

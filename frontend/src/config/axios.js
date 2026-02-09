@@ -1,6 +1,9 @@
 import axios from 'axios';
 import { clearSession } from '../utils/authUtils'; // Importamos la función de limpieza
 
+// Configuración base de Axios para conectar con el backend
+axios.defaults.baseURL = 'http://localhost:3001';
+
 // Interceptor de solicitudes: agregar token automáticamente
 axios.interceptors.request.use(
   (config) => {

@@ -112,11 +112,20 @@ function extraerMetadatos(p12Buffer, password) {
     fechaExpiracionNorm = `${y}-${m}-${day}`;
   }
 
+  // Extraer Sexo si está disponible (OID 2.5.4.12 suele ser Title, pero en Ecuador a veces se usa OID específicos o extensiones)
+  // Sin embargo, la mayoría de certificados de personas físicas en Ecuador no contienen el sexo explícito en un OID estándar.
+  // Buscaremos en el subject por patrones comunes o extensiones si existieran.
+  let sexoExtraido = '';
+  const desc = (getAttrValue(subject, 'description') || '').toUpperCase();
+  if (desc.includes('SEXO:M') || desc.includes('SEXO: HOMBRE') || desc.includes('SEXO: MASCULINO')) sexoExtraido = 'Hombre';
+  else if (desc.includes('SEXO:F') || desc.includes('SEXO: MUJER') || desc.includes('SEXO: FEMENINO')) sexoExtraido = 'Mujer';
+
   return {
     nombre: nombre.trim(),
     ci: String(ci).trim(),
     entidadEmisora: entidadEmisora.trim(),
-    fechaExpiracion: fechaExpiracionNorm
+    fechaExpiracion: fechaExpiracionNorm,
+    sexo: sexoExtraido
   };
 }
 

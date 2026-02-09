@@ -4,7 +4,7 @@ const multer = require('multer'); // Importar multer
 const authController = require('../controllers/authController');
 const usuariosController = require('../controllers/usuariosController'); // Importar el objeto completo
 const validarToken = require('../middlewares/validarToken'); // Asumo que existe o lo crearé
-const validarAdmin = require('../middlewares/validarAdmin');
+const verifyRole = require('../middlewares/verifyRole');
 const ubicacionesController = require('../controllers/ubicacionesController');
 
 // Configurar multer para carga de archivo de firma (memoria)
@@ -44,23 +44,23 @@ router.post('/desbloquear', upload.single('p12'), authController.desbloquearCuen
 router.post('/cambiar-contrasena', validarToken, authController.cambiarContrasena);
 
 // Nuevas rutas para aprobación de usuarios
-router.get('/pendientes', authController.usuariosPendientes);
-router.put('/aprobar/:id', authController.aprobarUsuario);
+router.get('/pendientes', validarToken, verifyRole(6), authController.usuariosPendientes);
+router.put('/aprobar/:id', validarToken, verifyRole(6), authController.aprobarUsuario);
 
-// Crear usuario administrador
-router.post('/admin', validarAdmin, authController.crearAdmin);
+// Crear usuario administrador (Solo TI puede crear admins ahora)
+router.post('/admin', validarToken, verifyRole(6), authController.crearAdmin);
 
 // Asignar rol de administrador
-router.put('/asignarAdmin/:id', validarAdmin, authController.asignarAdmin);
+router.put('/asignarAdmin/:id', validarToken, verifyRole(6), authController.asignarAdmin);
 
 // Aprobar usuario
-router.put('/aprobarUsuario/:id', validarAdmin, authController.aprobarUsuario);
+router.put('/aprobarUsuario/:id', validarToken, verifyRole(6), authController.aprobarUsuario);
 
 // Obtener todos los usuarios
-router.get('/', validarAdmin, authController.getAllUsuarios);
+router.get('/', validarToken, verifyRole(6), authController.getAllUsuarios);
 
 // Obtener todos los roles
-router.get('/roles', validarAdmin, authController.getAllRoles);
+router.get('/roles', validarToken, verifyRole(6), authController.getAllRoles);
 
 // Nueva ruta pública para obtener roles para el registro
 router.get('/public-roles', usuariosController.obtenerRoles);

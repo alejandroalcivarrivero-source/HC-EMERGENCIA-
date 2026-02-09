@@ -31,6 +31,8 @@ import DashboardPendientes from './pages/DashboardPendientes';
 import FirmarAtencionPage from './pages/FirmarAtencionPage';
 import AtencionesEnCurso from './pages/AtencionesEnCurso';
 import AjustesFirmaElectronica from './pages/AjustesFirmaElectronica';
+import SoporteTecnico from './pages/SoporteTecnico';
+import SoporteTI from './pages/SoporteTI';
 
  function PublicRoute({ children }) {
   const token = localStorage.getItem('token');
@@ -72,7 +74,6 @@ function RedirectByRole() {
  
 function App() {
   const navigate = useNavigate(); // Usar useNavigate aquí para la redirección
-  const [showSessionExpiredModal, setShowSessionExpiredModal] = useState(false);
 
   const inactivityTimeout = useRef(null);
   const INACTIVITY_LIMIT = 60 * 60 * 1000; // 1 hora en milisegundos
@@ -84,12 +85,9 @@ function App() {
 
   const logout = () => {
     localStorage.removeItem('token');
-    setShowSessionExpiredModal(true); // Mostrar el modal en lugar de alert
-  };
-
-  const handleSessionExpiredConfirm = () => {
-    setShowSessionExpiredModal(false);
-    navigate('/'); // Redirigir a la página de login
+    // El AxiosInterceptor o el NotificationProvider se encargarán de notificar si es necesario
+    // o simplemente redirigimos. En este caso es por inactividad.
+    navigate('/');
   };
 
   useEffect(() => {
@@ -122,7 +120,7 @@ function App() {
       <Route
         path="/dashboard"
         element={
-          <ProtectedRoute allowedRoles={[1, 2, 3, 4, 5]}>
+          <ProtectedRoute allowedRoles={[1, 2, 3, 4, 5, 6]}>
             <Dashboard />
           </ProtectedRoute>
         }
@@ -138,16 +136,24 @@ function App() {
       <Route
         path="/admin/usuarios"
         element={
-          <ProtectedRoute allowedRoles={[5]}>
-            <AdminUsuarios />
+          <ProtectedRoute allowedRoles={[5, 6]}>
+            <SoporteTI />
           </ProtectedRoute>
         }
       />
       <Route
         path="/admin/videos"
         element={
-          <ProtectedRoute allowedRoles={[5]}>
-            <AdminVideos />
+          <ProtectedRoute allowedRoles={[5, 6]}>
+            <SoporteTI />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/logs"
+        element={
+          <ProtectedRoute allowedRoles={[5, 6]}>
+            <SoporteTI />
           </ProtectedRoute>
         }
       />
@@ -203,8 +209,16 @@ function App() {
       <Route
         path="/cambiar-contrasena"
         element={
-          <ProtectedRoute allowedRoles={[1, 2, 3, 4, 5]}>
+          <ProtectedRoute allowedRoles={[1, 2, 3, 4, 5, 6]}>
             <CambiarContrasenaForm />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/soporte-ti"
+        element={
+          <ProtectedRoute allowedRoles={[6]}>
+            <SoporteTI />
           </ProtectedRoute>
         }
       />
@@ -309,16 +323,18 @@ function App() {
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/admin/soporte"
+        element={
+          <ProtectedRoute allowedRoles={[5]}>
+            <SoporteTecnico />
+          </ProtectedRoute>
+        }
+      />
       
       {/* Ruta Comodín (*) para manejar 404 y redirecciones inteligentes */}
       <Route path="*" element={<RedirectByRole />} />
     </Routes>
-    <ConfirmModal
-      message="Su sesión ha expirado, ingrese nuevamente."
-      isOpen={showSessionExpiredModal}
-      onConfirm={handleSessionExpiredConfirm}
-      isInformative={true}
-    />
   </>
  );
 }

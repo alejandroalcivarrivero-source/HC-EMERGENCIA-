@@ -1,6 +1,20 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LayoutDashboard, RefreshCw, FileCheck, FileEdit, Users, Settings, FileText, List, History, BarChart3, FileKey } from 'lucide-react';
+// import { LayoutDashboard, RefreshCw, FileCheck, FileEdit, Users, Settings, FileText, List, History, BarChart3, FileKey, Wrench } from 'lucide-react';
+
+// Iconos temporales para evitar fallos de lucide-react
+const LayoutDashboard = () => <span>[Dash]</span>;
+const RefreshCw = () => <span>[Ref]</span>;
+const FileCheck = () => <span>[Check]</span>;
+const FileEdit = () => <span>[Edit]</span>;
+const Users = () => <span>[Users]</span>;
+const Settings = () => <span>[Set]</span>;
+const FileText = () => <span>[Doc]</span>;
+const List = () => <span>[List]</span>;
+const History = () => <span>[Hist]</span>;
+const BarChart3 = () => <span>[Stats]</span>;
+const FileKey = () => <span>[Key]</span>;
+const Wrench = () => <span>[Fix]</span>;
 import { useSidebar } from '../contexts/SidebarContext';
 
 /** Solo operativo: uso clínico diario */
@@ -34,9 +48,13 @@ export const quickAccessLinks = {
     5: [
       { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
       { name: 'Dashboard BI', path: '/admin/bi', icon: BarChart3 },
-      { name: 'Gestión de Usuarios', path: '/admin/usuarios', icon: Users },
-      { name: 'Videos', path: '/admin/videos', icon: FileText },
       { name: 'Reportes Globales', path: '/reportes', icon: BarChart3 },
+    ],
+    6: [
+      { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
+      { name: 'Panel Soporte TI', path: '/soporte-ti', icon: Wrench },
+      { name: 'Gestión de Usuarios', path: '/admin/usuarios', icon: Users },
+      { name: 'Administración de Videos', path: '/admin/videos', icon: FileText },
     ],
   };
 
@@ -56,7 +74,8 @@ export default function Header() {
     2: 'Obstetriz',
     3: 'Enfermería',
     4: 'Estadístico',
-    5: 'Administrador'
+    5: 'Administrador',
+    6: 'Soporte TI'
   };
 
   useEffect(() => {

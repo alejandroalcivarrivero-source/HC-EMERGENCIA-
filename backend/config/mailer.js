@@ -1,15 +1,12 @@
 const nodemailer = require('nodemailer');
 
 const transporter = nodemailer.createTransport({
-  host: '190.214.55.52',
-  port: 587,
-  secure: false, // Zimbra suele usar STARTTLS en el puerto 587
-  auth: {
-    user: process.env.CORREO_APP,
-    pass: process.env.CORREO_PASS
-  },
+  host: 'localhost',
+  port: 25,
+  secure: false,
   tls: {
-    rejectUnauthorized: false // Permite certificados auto-firmados si es necesario para la IP interna
+    // No necesitamos SSL/TLS para conexión local a Postfix
+    rejectUnauthorized: false
   }
 });
 

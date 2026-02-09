@@ -107,6 +107,8 @@ app.use('/api/reasignacion', require('./routes/reasignacion')); // Rutas de reas
 app.use('/api/firma-electronica', require('./routes/firmaElectronica')); // Rutas de firma electrónica
 app.use('/api/bi', require('./routes/biRoutes')); // Rutas de Dashboard BI
 app.use('/api/verificar', require('./routes/verificarTabla')); // Ruta temporal para verificar estructura de tablas
+app.use('/api/soporte', require('./routes/soporte')); // Rutas para soporte técnico (logs correos, intentos, etc)
+app.use('/api/usuarios-admin', require('./routes/usuariosAdmin')); // Rutas de gestión de usuarios para TI
 
 // Inicializar Socket.io ANTES de iniciar el servidor (para que esté listo cuando el servidor escuche)
 initSocketServer(httpServer);

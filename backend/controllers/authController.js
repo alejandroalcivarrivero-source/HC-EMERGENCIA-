@@ -1,6 +1,8 @@
 const jwt = require('jsonwebtoken');
 const Usuario = require('../models/usuario');
 const Rol = require('../models/rol');
+const LogCorreo = require('../models/LogCorreo');
+const LogIntentoCedula = require('../models/LogIntentoCedula');
 const { extraerMetadatos, validarCertificadoBuffer } = require('../utils/p12Metadatos');
 const { encrypt, decrypt } = require('../utils/cryptoFirma');
 const bcrypt = require('bcryptjs');
@@ -31,7 +33,16 @@ exports.login = async (req, res) => {
 
   try {
     const usuario = await Usuario.findOne({ where: { cedula } });
-    if (!usuario) return res.status(404).json({ mensaje: 'Usuario no encontrado' });
+    if (!usuario) {
+      // Registrar intento con cédula no encontrada
+      await LogIntentoCedula.create({
+        cedula: cedula,
+        tipo_accion: 'LOGIN_FALLIDO',
+        exitoso: false,
+        ip_address: req.ip
+      });
+      return res.status(404).json({ mensaje: 'Usuario no encontrado' });
+    }
 
     // Verificar si la cuenta está bloqueada
     if (usuario.estado_cuenta === 'BLOQUEADO') {
@@ -57,6 +68,14 @@ exports.login = async (req, res) => {
         updateData.ultimo_bloqueo = new Date();
       }
 
+      // Registrar intento fallido
+      await LogIntentoCedula.create({
+        cedula: usuario.cedula,
+        tipo_accion: 'LOGIN_FALLIDO',
+        exitoso: false,
+        ip_address: req.ip
+      });
+
       await usuario.update(updateData);
 
       if (nuevosIntentos >= 5) {
@@ -74,6 +93,19 @@ exports.login = async (req, res) => {
     if (usuario.intentos_fallidos > 0) {
       await usuario.update({ intentos_fallidos: 0 });
     }
+
+    // Login exitoso: Resetear intentos fallidos
+    if (usuario.intentos_fallidos > 0) {
+      await usuario.update({ intentos_fallidos: 0 });
+    }
+
+    // Registrar login exitoso
+    await LogIntentoCedula.create({
+      cedula: usuario.cedula,
+      tipo_accion: 'LOGIN_EXITOSO',
+      exitoso: true,
+      ip_address: req.ip
+    });
 
     const token = generarToken(usuario);
     // Enviar el objeto usuario junto con el token
@@ -101,6 +133,11 @@ exports.registro = async (req, res) => {
     // Validar cédula ecuatoriana
     if (!validarCedulaEcuador(userData.cedula)) {
       return res.status(400).json({ message: 'El número de cédula ingresado no es válido para Ecuador.' });
+    }
+
+    // Validar sexo (Estandarización)
+    if (!userData.sexo || !['Hombre', 'Mujer'].includes(userData.sexo)) {
+      return res.status(400).json({ message: 'El campo sexo debe ser "Hombre" o "Mujer".' });
     }
 
     // Validar y concatenar dominio institucional al correo/usuario
@@ -210,11 +247,26 @@ exports.validarFirmaRegistro = async (req, res) => {
         nombres = meta.nombre; // Fallback
     }
 
+    // Mapeo y validación estricta de sexo
+    let sexoFinal = '';
+    if (meta.sexo) {
+        if (['Hombre', 'Mujer'].includes(meta.sexo)) {
+            sexoFinal = meta.sexo;
+        } else {
+            // Si viene algo raro del certificado, lanzamos error para corrección manual
+            return res.status(400).json({
+                message: 'El sexo detectado en el certificado no es válido. Por favor, realice el registro de forma manual o corrija su certificado.',
+                error: 'Validación de Sexo fallida'
+            });
+        }
+    }
+
     res.json({
       cedula: meta.ci,
       nombres: nombres.toUpperCase(),
       apellidos: apellidos.toUpperCase(),
-      nombreCompleto: meta.nombre
+      nombreCompleto: meta.nombre,
+      sexo: sexoFinal
     });
 
   } catch (error) {
@@ -228,7 +280,16 @@ exports.recuperar = async (req, res) => {
 
   try {
     const usuario = await Usuario.findOne({ where: { cedula, correo } });
-    if (!usuario) return res.status(404).json({ mensaje: 'Datos incorrectos' });
+    if (!usuario) {
+      // Registrar intento fallido de recuperación
+      await LogIntentoCedula.create({
+        cedula: cedula,
+        tipo_accion: 'RECUPERACION_FALLIDA',
+        exitoso: false,
+        ip_address: req.ip
+      });
+      return res.status(404).json({ mensaje: 'Datos incorrectos' });
+    }
 
     // Generar OTP de 6 dígitos para desbloqueo
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -237,8 +298,9 @@ exports.recuperar = async (req, res) => {
     const token = jwt.sign({ id: usuario.id, otp }, JWT_SECRET, { expiresIn: '30m' });
     const enlace = `${FRONTEND_URL}/restablecer/${token}`;
 
-    await transporter.sendMail({
-      from: `"Sistema HC" <${process.env.CORREO_APP}>`,
+    try {
+      await transporter.sendMail({
+      from: `"Sistema HC" <sistema@sigemech.local>`,
       to: correo,
       subject: 'Recuperación de contraseña y Desbloqueo de Cuenta',
       html: `
@@ -247,7 +309,27 @@ exports.recuperar = async (req, res) => {
         <p>O si prefieres restablecer tu contraseña, haz clic en el siguiente enlace (expira en 30 minutos):</p>
         <a href="${enlace}">${enlace}</a>
       `
-    });
+      });
+
+      // Registrar log de correo enviado
+      await LogCorreo.create({
+        correo_destino: correo,
+        tipo: 'OTP_RECUPERACION',
+        estado: 'ENVIADO',
+        cedula_asociada: usuario.cedula
+      });
+    } catch (mailError) {
+      console.error('Error al enviar correo (nodemailer):', mailError);
+      // Registrar log de correo fallido
+      await LogCorreo.create({
+        correo_destino: correo,
+        tipo: 'OTP_RECUPERACION',
+        estado: 'FALLIDO',
+        error_mensaje: mailError.message,
+        cedula_asociada: usuario.cedula
+      });
+      throw mailError; // Re-lanzar para el catch general
+    }
 
     // Devolvemos el token_otp para que el frontend lo use en el endpoint de desbloqueo
     res.status(200).json({
@@ -293,7 +375,7 @@ exports.solicitarOtpRecuperacion = async (req, res) => {
         const token = jwt.sign({ id: usuario.id, otp }, JWT_SECRET, { expiresIn: '15m' });
 
         await transporter.sendMail({
-            from: `"Soporte SIGEMECH" <${process.env.CORREO_APP}>`,
+            from: `"Soporte SIGEMECH" <sistema@sigemech.local>`,
             to: correo,
             subject: 'Código de Recuperación de Contraseña',
             html: `

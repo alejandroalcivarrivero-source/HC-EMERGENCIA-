@@ -5,13 +5,19 @@ import './config/axios'; // Importar configuración de axios ANTES de App para q
 import App from './App';
 import './index.css';
 import { SidebarProvider } from './contexts/SidebarContext';
+import { NotificationProvider } from './contexts/NotificationContext';
+import AxiosInterceptor from './AxiosInterceptor';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-      <SidebarProvider>
-        <App />
-      </SidebarProvider>
+      <NotificationProvider>
+        <AxiosInterceptor>
+          <SidebarProvider>
+            <App />
+          </SidebarProvider>
+        </AxiosInterceptor>
+      </NotificationProvider>
     </BrowserRouter>
   </React.StrictMode>
 );

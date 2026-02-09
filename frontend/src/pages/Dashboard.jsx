@@ -3,11 +3,34 @@ import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import Header from '../components/Header';
 import { mainLinksMedico, quickAccessLinks } from '../components/Header';
-import { FileText, Clock, User, Users, PenLine, ShieldAlert, BarChart3, Activity, Stethoscope, UserCheck } from 'lucide-react';
+// import { FileText, Clock, User, Users, PenLine, ShieldAlert, BarChart3, Activity, Stethoscope, UserCheck, Wrench } from 'lucide-react';
 import { format } from 'date-fns';
 
+// Reemplazos temporales para lucide-react
+const FileText = () => <span>[Doc]</span>;
+const Clock = () => <span>[Reloj]</span>;
+const User = () => <span>[Usuario]</span>;
+const Users = () => <span>[Usuarios]</span>;
+const PenLine = () => <span>[Editar]</span>;
+const ShieldAlert = () => <span>[Alerta]</span>;
+const BarChart3 = () => <span>[Grafico]</span>;
+const Activity = () => <span>[Actividad]</span>;
+const Stethoscope = () => <span>[Medico]</span>;
+const UserCheck = () => <span>[Check]</span>;
+const Wrench = () => <span>[Llave]</span>;
+
 export default function Dashboard() {
-  const [usuario, setUsuario] = useState(null);
+  const [usuario, setUsuario] = useState(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      try {
+        return JSON.parse(atob(token.split('.')[1]));
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  });
   const [atencionesEnCurso, setAtencionesEnCurso] = useState([]);
   const [loadingAtenciones, setLoadingAtenciones] = useState(false);
   const [kpis, setKpis] = useState({ pacientesEnEspera: 0, atencionesAbiertas: 0, porFirmar: 0 });
@@ -169,6 +192,58 @@ export default function Dashboard() {
                   </div>
 
                   {/* Accesos Rápidos Admin */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Link
+                      to="/reportes"
+                      className="p-4 bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-3 text-emerald-600 font-semibold"
+                    >
+                      <BarChart3 className="w-5 h-5" />
+                      Reportes Globales
+                    </Link>
+                    <Link
+                      to="/admin/bi"
+                      className="p-4 bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-3 text-blue-600 font-semibold"
+                    >
+                      <BarChart3 className="w-5 h-5" />
+                      Estadísticas BI
+                    </Link>
+                  </div>
+                </div>
+              )}
+
+              {/* Dashboard Soporte TI (ID 6) */}
+              {usuario.rol_id === 6 && (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-lg bg-indigo-100 flex items-center justify-center">
+                        <ShieldAlert className="w-6 h-6 text-indigo-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-500">Estado del Sistema</p>
+                        <p className="text-2xl font-bold text-emerald-600">Operativo</p>
+                      </div>
+                    </div>
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center">
+                        <Users className="w-6 h-6 text-blue-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-500">Usuarios Totales</p>
+                        <p className="text-2xl font-bold text-gray-800">142</p>
+                      </div>
+                    </div>
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-lg bg-amber-100 flex items-center justify-center">
+                        <Activity className="w-6 h-6 text-amber-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-500">Logs de Hoy</p>
+                        <p className="text-2xl font-bold text-gray-800">1.2k</p>
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <Link
                       to="/admin/usuarios"
@@ -178,18 +253,18 @@ export default function Dashboard() {
                       Gestión de Usuarios
                     </Link>
                     <Link
-                      to="/admin/usuarios" // Redirige a gestión, donde se aprueban
-                      className="p-4 bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-3 text-amber-600 font-semibold"
+                      to="/admin/videos"
+                      className="p-4 bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-3 text-indigo-600 font-semibold"
                     >
-                      <UserCheck className="w-5 h-5" />
-                      Aprobar Usuarios Pendientes
+                      <FileText className="w-5 h-5" />
+                      Gestión de Videos
                     </Link>
                     <Link
-                      to="/reportes"
+                      to="/admin/soporte"
                       className="p-4 bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-3 text-emerald-600 font-semibold"
                     >
-                      <BarChart3 className="w-5 h-5" />
-                      Reportes Globales
+                      <Wrench className="w-5 h-5" />
+                      Monitoreo Logs
                     </Link>
                   </div>
                 </div>
@@ -333,7 +408,15 @@ export default function Dashboard() {
               </div>
             </div>
           ) : (
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100"><p className="text-gray-600">Cargando datos...</p></div>
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+              <p className="text-gray-600">Cargando datos del usuario...</p>
+              <button
+                onClick={() => window.location.reload()}
+                className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                Reintentar Carga
+              </button>
+            </div>
           )}
         </div>
       </main>

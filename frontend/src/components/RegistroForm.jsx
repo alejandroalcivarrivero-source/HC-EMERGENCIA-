@@ -16,7 +16,9 @@ export default function RegistroForm() {
     contrasena: '',
     confirmar_contrasena: '',
     rol_id: '',
-    password_firma: ''
+    password_firma: '',
+    unidad_operativa: 'Centro de Salud Chone Tipo C',
+    registro_msp: ''
   });
   const [modoRegistro, setModoRegistro] = useState(null); // null | 'manual' | 'firma'
   const [archivoFirma, setArchivoFirma] = useState(null);
@@ -191,14 +193,26 @@ export default function RegistroForm() {
       return;
     }
 
-    if (!validarCedulaEcuador(form.cedula)) {
-      showNotification('Cédula Inválida', 'El número de cédula ingresado no es válido (Algoritmo Módulo 10). Por favor, verifique.', 'error');
+    // Blindaje: Asegurar que solo procese si tiene 10 dígitos
+    if (form.cedula.length !== 10) {
       setIsCedulaValida(false);
       setCedulaError(true);
       return;
     }
 
-    // Si la cédula es válida por Módulo 10, verificar duplicados en SISA_Ec (DB local)
+    // Validación Módulo 10 - Obligatorio para blindar identidad
+    if (!validarCedulaEcuador(form.cedula)) {
+      showNotification(
+        'Identidad Protegida',
+        'El número de cédula no supera la validación de Módulo 10. Por seguridad, debe ingresar una cédula ecuatoriana válida.',
+        'error'
+      );
+      setIsCedulaValida(false);
+      setCedulaError(true);
+      return;
+    }
+
+    // Búsqueda de duplicados en tiempo real para evitar registros dobles
     const existe = await verificarDuplicado(form.cedula);
     if (!existe) {
       setIsCedulaValida(true);
@@ -206,6 +220,7 @@ export default function RegistroForm() {
     } else {
       setIsCedulaValida(false);
       setCedulaError(true);
+      // El modal de duplicado ya se dispara dentro de verificarDuplicado
     }
   };
 
@@ -275,6 +290,13 @@ export default function RegistroForm() {
     }
     if (!form.rol_id) {
       showNotification('Rol Requerido', 'Debe seleccionar un rol institucional.', 'warning');
+      return false;
+    }
+    
+    // Validación de Registro MSP si el rol es Médico (ID 1 típicamente, pero validamos por nombre si es posible o ID)
+    const selectedRol = roles.find(r => r.id === parseInt(form.rol_id));
+    if (selectedRol?.nombre === 'Médico' && !form.registro_msp) {
+      showNotification('Registro MSP Requerido', 'El Número de Registro del MSP / Senescyt es obligatorio para médicos.', 'warning');
       return false;
     }
     return true;
@@ -542,9 +564,8 @@ export default function RegistroForm() {
                             className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white cursor-pointer"
                           >
                             <option value="">Seleccione Sexo</option>
-                            <option value="Masculino">Masculino</option>
-                            <option value="Femenino">Femenino</option>
-                            <option value="Otro">Otro</option>
+                            <option value="Hombre">Hombre</option>
+                            <option value="Mujer">Mujer</option>
                           </select>
                         </div>
 
@@ -569,10 +590,54 @@ export default function RegistroForm() {
               {/* Paso 2: Institucional */}
               {step === 2 && (
                 <div className="space-y-6 animate-fade-in">
+                  {/* Unidad Operativa - Bloqueada */}
+                  <div className="space-y-1">
+                    <label className="text-sm font-bold text-slate-700">Unidad Operativa</label>
+                    <input
+                      type="text"
+                      value={form.unidad_operativa}
+                      readOnly
+                      className="w-full p-3 border border-slate-200 rounded-xl bg-slate-100 text-slate-500 cursor-not-allowed font-medium"
+                    />
+                  </div>
+
+                  {/* Rol / Cargo - Desplegable */}
+                  <div className="space-y-1">
+                    <label className="text-sm font-bold text-slate-700">Rol / Cargo</label>
+                    <select
+                      name="rol_id"
+                      value={form.rol_id}
+                      onChange={handleChange}
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white cursor-pointer"
+                    >
+                      <option value="">Seleccione su Rol</option>
+                      {roles.map(rol => (
+                        <option key={rol.id} value={rol.id}>{rol.nombre}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Registro MSP - Solo si es Médico */}
+                  {roles.find(r => r.id === parseInt(form.rol_id))?.nombre === 'Médico' && (
+                    <div className="space-y-1 animate-slide-down">
+                      <label className="text-sm font-bold text-slate-700">Número de Registro MSP / Senescyt</label>
+                      <input
+                        type="text"
+                        name="registro_msp"
+                        value={form.registro_msp}
+                        onChange={handleChange}
+                        placeholder="Ingrese su número de registro"
+                        className="w-full p-3 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                        required
+                      />
+                      <p className="text-[10px] text-blue-600 font-medium">Este campo es obligatorio para el perfil médico.</p>
+                    </div>
+                  )}
+
                   <div className="space-y-1">
                     <label className="text-sm font-bold text-slate-700">Usuario Zimbra (Institucional)</label>
                     <div className="flex shadow-sm group">
-                      <input 
+                      <input
                         type="text" name="correo" value={form.correo} onChange={handleChange}
                         className="flex-1 p-3 border border-slate-200 rounded-l-xl focus:ring-2 focus:ring-blue-500 outline-none"
                         placeholder="nombre.apellido"
@@ -582,27 +647,6 @@ export default function RegistroForm() {
                       </span>
                     </div>
                     <p className="text-[10px] text-slate-400 font-medium mt-1">Ingrese únicamente el usuario sin el dominio.</p>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-sm font-bold text-slate-700">Rol en la Institución</label>
-                    <div className="grid grid-cols-1 gap-3">
-                      {roles.map(rol => (
-                        <button
-                          key={rol.id}
-                          type="button"
-                          onClick={() => setForm({...form, rol_id: rol.id})}
-                          className={`p-4 border-2 rounded-2xl text-left transition-all ${
-                            form.rol_id === rol.id ? 'border-blue-600 bg-blue-50' : 'border-slate-100 hover:border-blue-200'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className={`font-bold ${form.rol_id === rol.id ? 'text-blue-700' : 'text-slate-700'}`}>{rol.nombre}</span>
-                            {form.rol_id === rol.id && <span className="text-blue-600">●</span>}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
                   </div>
                 </div>
               )}
