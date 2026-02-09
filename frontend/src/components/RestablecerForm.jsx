@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import NotificationModal from './NotificationModal';
 
 export default function RestablecerForm() {
   const [nuevaContrasena, setNuevaContrasena] = useState('');
@@ -7,6 +8,20 @@ export default function RestablecerForm() {
   const [mensaje, setMensaje] = useState('');
   const { token } = useParams();
   const navigate = useNavigate();
+  const [notification, setNotification] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    severity: 'info'
+  });
+
+  const showNotification = (title, message, severity = 'info') => {
+    setNotification({ isOpen: true, title, message, severity });
+  };
+
+  const closeNotification = () => {
+    setNotification(prev => ({ ...prev, isOpen: false }));
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -26,8 +41,8 @@ export default function RestablecerForm() {
       const data = await res.json();
 
       if (res.ok) {
-        alert('Contraseña actualizada correctamente');
-        navigate('/');
+        showNotification('Éxito', 'Contraseña actualizada correctamente', 'success');
+        setTimeout(() => navigate('/'), 2000);
       } else {
         setMensaje(data.mensaje || 'Error al restablecer');
       }
@@ -38,6 +53,7 @@ export default function RestablecerForm() {
   };
 
   return (
+    <>
     <div className="flex justify-center items-center h-screen bg-gray-100">
       <form onSubmit={handleSubmit} className="bg-white p-6 rounded shadow-md w-full max-w-md">
         <h2 className="text-2xl font-bold mb-4 text-center">Restablecer Contraseña</h2>
@@ -67,5 +83,13 @@ export default function RestablecerForm() {
         </button>
       </form>
     </div>
+    <NotificationModal
+      isOpen={notification.isOpen}
+      onClose={closeNotification}
+      title={notification.title}
+      message={notification.message}
+      severity={notification.severity}
+    />
+    </>
   );
 }

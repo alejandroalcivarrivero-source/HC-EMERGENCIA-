@@ -260,6 +260,97 @@ exports.recuperar = async (req, res) => {
   }
 };
 
+// VALIDAR FIRMA PARA RECUPERACIÓN (Método A)
+exports.validarFirmaRecuperacion = async (req, res) => {
+    const { cedula, password_firma } = req.body;
+    try {
+        if (!req.file || !password_firma || !cedula) {
+            return res.status(400).json({ message: 'Datos incompletos.' });
+        }
+        
+        const usuario = await Usuario.findOne({ where: { cedula } });
+        if (!usuario) return res.status(404).json({ message: 'Usuario no registrado con esa cédula.' });
+
+        const meta = extraerMetadatos(req.file.buffer, password_firma);
+        if (meta.ci !== cedula) {
+            return res.status(400).json({ message: 'La firma no corresponde a la cédula ingresada.' });
+        }
+
+        res.json({ message: 'Identidad validada.', cedula: usuario.cedula });
+    } catch (error) {
+        res.status(400).json({ message: 'Error al validar la firma: ' + error.message });
+    }
+};
+
+// SOLICITAR OTP (Método B - Zimbra)
+exports.solicitarOtpRecuperacion = async (req, res) => {
+    const { cedula, correo } = req.body;
+    try {
+        const usuario = await Usuario.findOne({ where: { cedula, correo } });
+        if (!usuario) return res.status(404).json({ mensaje: 'Datos incorrectos. Asegúrese de usar su correo institucional.' });
+
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        const token = jwt.sign({ id: usuario.id, otp }, JWT_SECRET, { expiresIn: '15m' });
+
+        await transporter.sendMail({
+            from: `"Soporte SIGEMECH" <${process.env.CORREO_APP}>`,
+            to: correo,
+            subject: 'Código de Recuperación de Contraseña',
+            html: `
+                <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+                    <h2 style="color: #2563eb;">Recuperación de Contraseña</h2>
+                    <p>Hola <b>${usuario.nombres}</b>,</p>
+                    <p>Su código de verificación para resetear su clave es:</p>
+                    <div style="background: #f3f4f6; padding: 15px; text-align: center; font-size: 24px; font-bold; letter-spacing: 5px; color: #1e40af; border-radius: 5px;">
+                        ${otp}
+                    </div>
+                    <p style="font-size: 12px; color: #6b7280; margin-top: 20px;">Este código expira en 15 minutos.</p>
+                </div>
+            `
+        });
+
+        res.json({ mensaje: 'Código enviado.', token_otp: token });
+    } catch (error) {
+        console.error('Error al enviar OTP:', error);
+        res.status(500).json({ mensaje: 'Error al conectar con el servidor de correo.' });
+    }
+};
+
+// VALIDAR OTP RECUPERACIÓN
+exports.validarOtpRecuperacion = async (req, res) => {
+    const { cedula, otp, token_otp } = req.body;
+    try {
+        const usuario = await Usuario.findOne({ where: { cedula } });
+        if (!usuario) return res.status(404).json({ message: 'Usuario no encontrado.' });
+
+        const decoded = jwt.verify(token_otp, JWT_SECRET);
+        if (decoded.id === usuario.id && decoded.otp === otp) {
+            return res.json({ message: 'Código verificado.' });
+        }
+        res.status(400).json({ message: 'El código es incorrecto o ha expirado.' });
+    } catch (err) {
+        res.status(400).json({ message: 'Sesión de recuperación expirada.' });
+    }
+};
+
+// RESET PASSWORD FINAL
+exports.resetPasswordFinal = async (req, res) => {
+    const { cedula, nuevaClave } = req.body;
+    try {
+        const usuario = await Usuario.findOne({ where: { cedula } });
+        if (!usuario) return res.status(404).json({ message: 'Usuario no encontrado.' });
+
+        usuario.contrasena = nuevaClave; // El modelo debe tener un hook beforeSave para hashear
+        usuario.estado_cuenta = 'ACTIVO';
+        usuario.intentos_fallidos = 0;
+        await usuario.save();
+
+        res.json({ message: 'Contraseña actualizada correctamente.' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error al actualizar la contraseña.' });
+    }
+};
+
 // DESBLOQUEO HÍBRIDO (Zimbra OTP o Firma Digital)
 exports.desbloquearCuenta = async (req, res) => {
   const { cedula, otp, password_firma, token_otp } = req.body;
@@ -406,6 +497,20 @@ exports.buscarPacientePorIdentificacion = async (req, res) => {
   } catch (error) {
     console.error('Error al buscar paciente por identificación:', error);
     return res.status(500).json({ message: 'Error interno del servidor al buscar paciente.' });
+  }
+};
+
+exports.verificarUsuario = async (req, res) => {
+  const { cedula } = req.params;
+  try {
+    const usuario = await Usuario.findOne({ where: { cedula } });
+    if (usuario) {
+      return res.status(200).json({ existe: true, mensaje: 'Usuario ya registrado' });
+    }
+    return res.status(200).json({ existe: false });
+  } catch (error) {
+    console.error('Error al verificar usuario:', error);
+    res.status(500).json({ mensaje: 'Error al verificar disponibilidad de cédula' });
   }
 };
 

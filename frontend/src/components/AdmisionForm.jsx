@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import moment from 'moment-timezone'; // Re-importar moment-timezone
 import axios from 'axios';
 import ConfirmModal from './ConfirmModal';
+import NotificationModal from './NotificationModal';
 import AutoCompleteInput from './AutoCompleteInput';
 import { validarCedulaEcuador } from '../utils/validaciones';
 
@@ -140,7 +141,7 @@ export default function AdmisionForm() {
     const today = new Date(); // Obtener la fecha y hora actual
 
     if (birth.getTime() > today.getTime()) { // Comparar con la hora actual también
-      alert('La fecha y hora de nacimiento no pueden ser mayores a la fecha y hora actual.');
+      showNotification('Fecha Inválida', 'La fecha y hora de nacimiento no pueden ser mayores a la fecha y hora actual.', 'error');
       setFormData(prev => ({
         ...prev,
         fechaNacimiento: '',
@@ -310,7 +311,7 @@ export default function AdmisionForm() {
       if (canProceed) {
         setActiveTab(tabName);
       } else {
-        alert(`Por favor, complete el campo obligatorio: ${errorMessage} en la pestaña actual.`);
+        showNotification('Campo Obligatorio', `Por favor, complete el campo obligatorio: ${errorMessage} en la pestaña actual.`, 'warning');
       }
     } else {
       // Retrocediendo o haciendo clic en la pestaña actual, siempre permitido
@@ -724,13 +725,13 @@ export default function AdmisionForm() {
     // Ya no es necesario el blur para la búsqueda, pero mantenemos la validación si el usuario sale del campo
     const { tipoIdentificacion, numeroIdentificacion } = formData;
     if (tipoIdentificacion === 'Cedula de Identidad' && numeroIdentificacion && !validarCedulaEcuatoriana(numeroIdentificacion)) {
-      alert('Número de cédula ecuatoriana inválido.');
+      showNotification('Identificación Inválida', 'Número de cédula ecuatoriana inválido.', 'error');
     }
   };
 
   const validateNumeroIdentificacion = () => {
     if (formData.tipoIdentificacion !== 'NoIdentificado' && !formData.numeroIdentificacion) {
-      alert('Por favor, ingrese el número de identificación.');
+      showNotification('Campo Requerido', 'Por favor, ingrese el número de identificación.', 'warning');
       return false;
     }
     return true;
@@ -742,14 +743,14 @@ export default function AdmisionForm() {
       const { isValid, message } = validateTab(tab);
       if (!isValid) {
         setActiveTab(tab);
-        alert(`Por favor, complete el campo obligatorio: ${message} en la pestaña actual.`);
+        showNotification('Datos Incompletos', `Por favor, complete el campo obligatorio: ${message} en la pestaña actual.`, 'warning');
         return;
       }
     }
  
     // Validación adicional para motivoConsultaSeleccionado antes de enviar
     if (!motivoConsultaSeleccionado) {
-      alert('Por favor, seleccione un Motivo de Consulta de la lista de sugerencias.');
+      showNotification('Motivo de Consulta', 'Por favor, seleccione un Motivo de Consulta de la lista de sugerencias.', 'warning');
       setActiveTab('motivoConsulta');
       return;
     }
@@ -924,18 +925,18 @@ export default function AdmisionForm() {
       try {
         const response = await axios.post(url, dataToSend);
         console.log('[AdmisionForm] Respuesta exitosa del servidor (guardar):', response.data);
-        alert('Registro de admisión guardado exitosamente.');
+        showNotification('Éxito', 'Registro de admisión guardado exitosamente.', 'success');
         limpiarFormulario();
         setPacienteIdExistente(null); // Limpiar el ID del paciente existente después de guardar/actualizar
         setActiveTab('personales'); // Redirigir a la primera pestaña
       } catch (error) {
         console.error('[AdmisionForm] Error al guardar el registro de admisión:', error);
         const errorMessage = error.response?.data?.message || error.message || 'Error desconocido';
-        alert(`Error al guardar el registro de admisión: ${errorMessage}`);
+        showNotification('Error de Guardado', `Error al guardar el registro de admisión: ${errorMessage}`, 'error');
       }
     } catch (error) {
       console.error('Error en la solicitud de guardar formulario:', error);
-      alert('Error de conexión al guardar el formulario. Por favor, intente de nuevo.');
+      showNotification('Error de Conexión', 'Error de conexión al guardar el formulario. Por favor, intente de nuevo.', 'error');
     }
   };
 
@@ -973,7 +974,7 @@ export default function AdmisionForm() {
       try {
         const response = await axios.post(url, dataToSend);
         console.log('[AdmisionForm] Respuesta exitosa del servidor:', response.data);
-        alert('Registro de admisión guardado exitosamente. Redirigiendo a Signos Vitales.');
+        showNotification('Éxito', 'Registro de admisión guardado exitosamente. Redirigiendo a Signos Vitales.', 'success');
         limpiarFormulario();
         setPacienteIdExistente(null); // Limpiar el ID del paciente existente después de guardar/actualizar
         navigate('/signosvitales');
@@ -994,11 +995,11 @@ export default function AdmisionForm() {
         }
         
         const errorMessage = error.response?.data?.message || error.message || 'Error desconocido';
-        alert(`Error al guardar el registro de admisión: ${errorMessage}`);
+        showNotification('Error de Guardado', `Error al guardar el registro de admisión: ${errorMessage}`, 'error');
       }
     } catch (error) {
       console.error('Error en la solicitud de guardar y tomar signos vitales:', error);
-      alert('Error de conexión al guardar y tomar signos vitales. Por favor, intente de nuevo.');
+      showNotification('Error de Conexión', 'Error de conexión al guardar y tomar signos vitales. Por favor, intente de nuevo.', 'error');
     }
   };
 
@@ -1044,6 +1045,27 @@ export default function AdmisionForm() {
   const [isFormEnabledForNewEntry, setIsFormEnabledForNewEntry] = useState(false); // Nuevo estado para habilitar/deshabilitar el formulario
   const [isEntregaFieldsDisabled, setIsEntregaFieldsDisabled] = useState(false); // Nuevo estado para inhabilitar campos de entrega
   const [isSearchingPatient, setIsSearchingPatient] = useState(false);
+
+  // Estados para el NotificationModal
+  const [notification, setNotification] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    severity: 'info'
+  });
+
+  const showNotification = (title, message, severity = 'info') => {
+    setNotification({
+      isOpen: true,
+      title,
+      message,
+      severity
+    });
+  };
+
+  const closeNotification = () => {
+    setNotification(prev => ({ ...prev, isOpen: false }));
+  };
 
   // Nuevos estados para ubicaciones de residencia
   const [provinciasResidenciaList, setProvinciasResidenciaList] = useState([]);
@@ -1584,6 +1606,7 @@ export default function AdmisionForm() {
   ]);
 
   return (
+    <>
     <form onSubmit={handleSubmit} className="space-y-6 p-6 bg-white shadow-md rounded-lg">
       {/* Tab Navigation */}
       <div className="flex border-b border-gray-200">
@@ -2084,7 +2107,7 @@ export default function AdmisionForm() {
                     // No hay coincidencia exacta, limpiar y mostrar mensaje
                     setTimeout(() => {
                       setFormData(prev => ({ ...prev, motivoConsulta: '' }));
-                      alert('Por favor, seleccione un Motivo de Consulta válido de la lista de sugerencias.');
+                      showNotification('Motivo Inválido', 'Por favor, seleccione un Motivo de Consulta válido de la lista de sugerencias.', 'warning');
                     }, 100);
                   }
                 }
@@ -2198,5 +2221,13 @@ export default function AdmisionForm() {
       isOpen={isModalOpen}
     />
     </form>
+    <NotificationModal
+      isOpen={notification.isOpen}
+      onClose={closeNotification}
+      title={notification.title}
+      message={notification.message}
+      severity={notification.severity}
+    />
+    </>
   );
 }

@@ -117,4 +117,7 @@ router.delete('/pacientes/:id', usuariosController.eliminarPaciente);
 // Ruta para cambiar contraseña de usuario logueado
 router.post('/cambiar-contrasena', validarToken, authController.cambiarContrasena); // Nueva ruta
 
+// Verificar si un usuario ya existe por cédula (público para registro proactivo)
+router.get('/verificar/:cedula', authController.verificarUsuario);
+
 module.exports = router;
