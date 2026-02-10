@@ -15,6 +15,7 @@ export default function ListaPacientesPage() {
   const [estadosPaciente, setEstadosPaciente] = useState([]); // Para almacenar los estados de paciente
   const [sortField, setSortField] = useState('fechaAdmision'); // Campo por defecto para ordenar
   const [sortOrder, setSortOrder] = useState('desc'); // Orden por defecto (descendente)
+  const [cedulaBusqueda, setCedulaBusqueda] = useState('');
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -36,6 +37,10 @@ export default function ListaPacientesPage() {
       params.append('sortField', sortField);
       params.append('sortOrder', sortOrder);
 
+      if (cedulaBusqueda) {
+        params.append('cedula', cedulaBusqueda);
+      }
+
       if (params.toString()) {
         url = `${url}?${params.toString()}`;
       }
@@ -55,7 +60,7 @@ export default function ListaPacientesPage() {
       console.error('Error al obtener admisiones:', error);
       alert('Error al cargar admisiones. Por favor, intente de nuevo.');
     }
-  }, [fechaInicio, fechaFin, estadoSeleccionado, sortField, sortOrder]);
+  }, [fechaInicio, fechaFin, estadoSeleccionado, sortField, sortOrder, cedulaBusqueda]);
 
   const fetchEstadosPaciente = useCallback(async () => {
     try {
@@ -218,7 +223,18 @@ export default function ListaPacientesPage() {
 
           {/* Controles de filtro */}
           <div className="bg-white shadow-md rounded-lg p-4 mb-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div>
+                <label htmlFor="cedulaBusqueda" className="block text-sm font-medium text-gray-700">Buscar por Cédula:</label>
+                <input
+                  type="text"
+                  id="cedulaBusqueda"
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+                  placeholder="Ingrese la cédula..."
+                  value={cedulaBusqueda}
+                  onChange={(e) => setCedulaBusqueda(e.target.value)}
+                />
+              </div>
               <div>
                 <label htmlFor="fechaInicio" className="block text-sm font-medium text-gray-700">Fecha Inicio:</label>
                 <input

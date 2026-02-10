@@ -1,0 +1,2 @@
+-- Backup Manual Generado el 9/2/2026, 12:58:32 p. m.
+-- Simulacion Windows

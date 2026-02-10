@@ -96,7 +96,7 @@ const startPatientStatusCheck = () => {
           },
           {
             model: SignosVitales,
-            as: 'DatosSignosVitales',
+            as: 'SignosVitales', // Corregido: el alias debe ser 'SignosVitales' para coincidir con la asociación del modelo
             order: [['fecha_hora_registro', 'DESC']],
             limit: 1,
             required: false // LEFT JOIN
@@ -140,7 +140,7 @@ const startPatientStatusCheck = () => {
         
         // Lógica para pacientes admitidos sin actividad (sin SV ni procedimientos) por más de 24 horas
         if (ultimoEstadoNombre === 'ADMITIDO' && tiempoDesdeUltimaActividad >= horas24) {
-          const signosVitalesCount = admision.DatosSignosVitales ? admision.DatosSignosVitales.length : 0;
+          const signosVitalesCount = admision.SignosVitales ? admision.SignosVitales.length : 0;
           const procedimientosCount = admision.CumplimientosProcedimientos ? admision.CumplimientosProcedimientos.length : 0;
 
           if (signosVitalesCount === 0 && procedimientosCount === 0) {
@@ -219,7 +219,7 @@ const startPatientStatusCheck = () => {
             const triajeNombre = admision.TriajeDefinitivo.nombre;
             const tiempoLimiteMs = TIEMPOS_ESPERA_TRIAJE[triajeNombre];
 
-            const ultimoSignoVital = admision.DatosSignosVitales && admision.DatosSignosVitales.length > 0 ? admision.DatosSignosVitales[0] : null;
+            const ultimoSignoVital = admision.SignosVitales && admision.SignosVitales.length > 0 ? admision.SignosVitales[0] : null;
 
             if (!ultimoSignoVital) {
               console.log(`[checkPatientStatus] Admisión ${admision.id}: No hay signos vitales registrados. No se genera alerta de triaje.`);

@@ -47,3 +47,21 @@ export const validarCedulaEcuador = (cedula) => {
 
     return resultado === digitoVerificador;
 };
+
+/**
+ * Valida que una contraseña cumpla con las reglas estrictas:
+ * - Mínimo 8 caracteres
+ * - Al menos una mayúscula
+ * - Al menos un número
+ * - Al menos un carácter especial
+ * @param {string} password - La contraseña a validar
+ * @returns {string|null} - Un mensaje de error si no es válida, o null si es correcta.
+ */
+export const validarPasswordEstricto = (password) => {
+    if (!password) return "La contraseña es requerida.";
+    if (password.length < 8) return "Debe tener al menos 8 caracteres.";
+    if (!/[A-Z]/.test(password)) return "Debe incluir al menos una mayúscula.";
+    if (!/[0-9]/.test(password)) return "Debe incluir al menos un número.";
+    if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) return "Debe incluir al menos un carácter especial (!@#$%^&*...).";
+    return null;
+};

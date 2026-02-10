@@ -329,7 +329,7 @@ const moment = require('moment-timezone'); // Importar moment-timezone
 
 const getAllAdmisiones = async (req, res) => {
   try {
-    const { fechaInicio, fechaFin, estadoPaciente, sortField, sortOrder } = req.query;
+    const { fechaInicio, fechaFin, estadoPaciente, sortField, sortOrder, cedula } = req.query;
     let whereClause = {};
     let orderClause = [];
 
@@ -390,13 +390,22 @@ const getAllAdmisiones = async (req, res) => {
       includeEstadoPaciente.required = true; // Hacer que el join sea INNER JOIN si se filtra por estado
     }
 
+    const includePaciente = {
+      model: Paciente,
+      as: 'Paciente',
+      attributes: ['id', 'numero_identificacion', 'primer_nombre', 'segundo_nombre', 'primer_apellido', 'segundo_apellido'],
+      where: {},
+      required: true
+    };
+
+    if (cedula) {
+      includePaciente.where.numero_identificacion = { [Op.like]: `${cedula}%` };
+    }
+
+
     const admisiones = await Admision.findAll({
       include: [
-        {
-          model: Paciente,
-          as: 'Paciente',
-          attributes: ['id', 'numero_identificacion', 'primer_nombre', 'segundo_nombre', 'primer_apellido', 'segundo_apellido'],
-        },
+        includePaciente,
         {
           model: CatMotivoConsultaSintomas,
           as: 'MotivoConsultaSintoma',

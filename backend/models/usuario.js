@@ -35,6 +35,13 @@ const Usuario = sequelize.define('Usuario', {
       isEmail: true
     }
   },
+  correo_alternativo: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    validate: {
+      isEmail: true
+    }
+  },
   telefono: { // Nuevo campo para el número de teléfono
     type: DataTypes.STRING(20),
     allowNull: true // Puede ser nulo si no es obligatorio

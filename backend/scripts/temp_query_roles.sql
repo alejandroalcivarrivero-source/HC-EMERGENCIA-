@@ -1,0 +1,1 @@
+SELECT u.id, u.nombres, u.apellidos, u.cedula, u.rol_id, r.nombre as rol_nombre FROM USUARIOS_SISTEMA u JOIN ROLES r ON u.rol_id = r.id;

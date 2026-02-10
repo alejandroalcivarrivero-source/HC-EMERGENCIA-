@@ -67,8 +67,8 @@ const Residencias = sequelize.define('Residencias', {
   timestamps: false
 });
 
-Residencias.belongsTo(Provincias, { foreignKey: 'provincia_residencia_id', as: 'Provincia' });
-Residencias.belongsTo(Cantones, { foreignKey: 'canton_residencia_id', as: 'Canton' });
-Residencias.belongsTo(Parroquias, { foreignKey: 'parroquia_residencia_id', as: 'Parroquia' });
+Residencias.belongsTo(Provincias, { foreignKey: 'provincia_residencia_id', as: 'ResidenciaProvinciaOrigen' });
+Residencias.belongsTo(Cantones, { foreignKey: 'canton_residencia_id', as: 'CantonResidenciaOrigen' });
+Residencias.belongsTo(Parroquias, { foreignKey: 'parroquia_residencia_id', as: 'ParroquiaResidencia' });
 
 module.exports = Residencias;

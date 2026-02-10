@@ -73,10 +73,11 @@ const AtencionPacienteEstado = sequelize.define('AtencionPacienteEstado', {
   tableName: 'ATENCION_PACIENTE_ESTADO'
 });
 
-AtencionPacienteEstado.belongsTo(Admision, { foreignKey: 'admisionId', as: 'Admision' });
-AtencionPacienteEstado.belongsTo(Usuario, { foreignKey: 'usuarioResponsableId', as: 'UsuarioResponsableEstado' });
-AtencionPacienteEstado.belongsTo(CatEstadoPaciente, { foreignKey: 'estado_id', as: 'Estado' });
-AtencionPacienteEstado.belongsTo(Usuario, { foreignKey: 'usuarioId', as: 'Usuario' });
-AtencionPacienteEstado.belongsTo(Rol, { foreignKey: 'rolId', as: 'Rol' });
+// Estas asociaciones ya se definen en init-associations.js para evitar conflictos de carga.
+// AtencionPacienteEstado.belongsTo(Admision, { foreignKey: 'admisionId', as: 'Admision' });
+// AtencionPacienteEstado.belongsTo(Usuario, { foreignKey: 'usuarioResponsableId', as: 'UsuarioResponsableEstado' });
+// AtencionPacienteEstado.belongsTo(CatEstadoPaciente, { foreignKey: 'estado_id', as: 'Estado' });
+// AtencionPacienteEstado.belongsTo(Usuario, { foreignKey: 'usuarioId', as: 'Usuario' });
+// AtencionPacienteEstado.belongsTo(Rol, { foreignKey: 'rolId', as: 'Rol' });
 
 module.exports = AtencionPacienteEstado;

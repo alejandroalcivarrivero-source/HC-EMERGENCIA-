@@ -171,9 +171,10 @@ const Admision = sequelize.define('Admision', { // Cambiar el nombre del modelo 
   freezeTableName: true // Evitar que Sequelize pluralice el nombre del modelo
 });
 
-Admision.belongsTo(FuenteInformacion, { foreignKey: 'fuenteInformacionId' });
-Admision.belongsTo(Usuario, { foreignKey: 'usuarioAdmisionId', as: 'UsuarioAdmision' });
-Admision.belongsTo(CatEstadoPaciente, { foreignKey: 'estado_paciente_id', as: 'EstadoPaciente' });
-Admision.belongsTo(CatMotivoConsultaSintomas, { foreignKey: 'motivo_consulta_sintoma_id', as: 'MotivoConsultaSintoma', targetKey: 'Codigo' });
+// Las asociaciones se definen centralizadamente en init-associations.js para evitar redundancia
+// Admision.belongsTo(FuenteInformacion, { foreignKey: 'fuenteInformacionId' });
+// Admision.belongsTo(Usuario, { foreignKey: 'usuarioAdmisionId', as: 'UsuarioAdmision' });
+// Admision.belongsTo(CatEstadoPaciente, { foreignKey: 'estado_paciente_id', as: 'EstadoPaciente' });
+// Admision.belongsTo(CatMotivoConsultaSintomas, { foreignKey: 'motivo_consulta_sintoma_id', as: 'MotivoConsultaSintoma', targetKey: 'Codigo' });
 
 module.exports = Admision; // Exportar el modelo con el nuevo nombre

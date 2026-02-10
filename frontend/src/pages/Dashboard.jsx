@@ -3,21 +3,22 @@ import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import Header from '../components/Header';
 import { mainLinksMedico, quickAccessLinks } from '../components/Header';
-// import { FileText, Clock, User, Users, PenLine, ShieldAlert, BarChart3, Activity, Stethoscope, UserCheck, Wrench } from 'lucide-react';
+import {
+  FileText,
+  Clock,
+  User,
+  Users,
+  PenLine,
+  ShieldAlert,
+  BarChart3,
+  Activity,
+  Stethoscope,
+  UserCheck,
+  Wrench,
+  AlertTriangle,
+  ShieldCheck
+} from 'lucide-react';
 import { format } from 'date-fns';
-
-// Reemplazos temporales para lucide-react
-const FileText = () => <span>[Doc]</span>;
-const Clock = () => <span>[Reloj]</span>;
-const User = () => <span>[Usuario]</span>;
-const Users = () => <span>[Usuarios]</span>;
-const PenLine = () => <span>[Editar]</span>;
-const ShieldAlert = () => <span>[Alerta]</span>;
-const BarChart3 = () => <span>[Grafico]</span>;
-const Activity = () => <span>[Actividad]</span>;
-const Stethoscope = () => <span>[Medico]</span>;
-const UserCheck = () => <span>[Check]</span>;
-const Wrench = () => <span>[Llave]</span>;
 
 export default function Dashboard() {
   const [usuario, setUsuario] = useState(() => {
@@ -33,7 +34,7 @@ export default function Dashboard() {
   });
   const [atencionesEnCurso, setAtencionesEnCurso] = useState([]);
   const [loadingAtenciones, setLoadingAtenciones] = useState(false);
-  const [kpis, setKpis] = useState({ pacientesEnEspera: 0, atencionesAbiertas: 0, porFirmar: 0 });
+  const [kpis, setKpis] = useState({ pacientesEnEspera: 0, atencionesAbiertas: 0, porFirmar: 0, totalPacientes: 0, admins: 0 });
   const [loadingKpis, setLoadingKpis] = useState(false);
   const navigate = useNavigate();
 
@@ -43,6 +44,13 @@ export default function Dashboard() {
 
     try {
       const payload = JSON.parse(atob(token.split('.')[1]));
+      
+      // Si el usuario es Rol 6 (Soporte TI), expulsar del Dashboard genérico
+      if (payload.rol_id === 6) {
+        navigate('/admin/usuarios');
+        return;
+      }
+      
       setUsuario(payload);
 
       if (payload.rol_id === 1 || payload.rol_id === 5) {
@@ -59,15 +67,22 @@ export default function Dashboard() {
     setLoadingKpis(true);
     const token = localStorage.getItem('token');
     try {
-      const [espera, enCurso, pendientes] = await Promise.all([
+      const requests = [
         axios.get('http://localhost:3001/api/atencion-paciente-estado/espera', { headers: { Authorization: `Bearer ${token}` } }),
         axios.get('http://localhost:3001/api/pendientes-firma/en-curso', { headers: { Authorization: `Bearer ${token}` } }),
         axios.get('http://localhost:3001/api/pendientes-firma', { headers: { Authorization: `Bearer ${token}` } }),
-      ]);
+        axios.get('http://localhost:3001/api/usuarios-admin/count', { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get('http://localhost:3001/api/soporte/stats', { headers: { Authorization: `Bearer ${token}` } }),
+      ];
+
+      const [espera, enCurso, pendientes, admins, soporteStats] = await Promise.all(requests.map(p => p.catch(e => ({ data: {} }))));
+      
       setKpis({
         pacientesEnEspera: Array.isArray(espera.data) ? espera.data.length : 0,
         atencionesAbiertas: Array.isArray(enCurso.data) ? enCurso.data.length : 0,
         porFirmar: Array.isArray(pendientes.data) ? pendientes.data.length : 0,
+        totalPacientes: soporteStats.data?.totalPacientes || 0,
+        admins: admins.data?.count || 0
       });
     } catch (e) {
       console.error('Error al cargar KPIs:', e);
@@ -109,84 +124,58 @@ export default function Dashboard() {
               {usuario.rol_id === 5 && (
                 <div className="space-y-6">
                   {/* Tarjetas de Indicadores */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex items-center gap-4">
                       <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center">
                         <Users className="w-6 h-6 text-blue-600" />
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-gray-500">Usuarios Activos</p>
-                        <p className="text-2xl font-bold text-gray-800">24</p>
+                        <p className="text-sm font-medium text-gray-500">Pacientes Reales</p>
+                        <p className="text-2xl font-bold text-gray-800">
+                          {loadingKpis ? '—' : kpis.totalPacientes}
+                        </p>
                       </div>
                     </div>
                     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex items-center gap-4">
                       <div className="w-12 h-12 rounded-lg bg-emerald-100 flex items-center justify-center">
-                        <Stethoscope className="w-6 h-6 text-emerald-600" />
+                        <UserCheck className="w-6 h-6 text-emerald-600" />
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-gray-500">Médicos en Turno</p>
-                        <p className="text-2xl font-bold text-gray-800">8</p>
-                      </div>
-                    </div>
-                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-lg bg-amber-100 flex items-center justify-center">
-                        <Activity className="w-6 h-6 text-amber-600" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-500">Atenciones Totales del Día</p>
-                        <p className="text-2xl font-bold text-gray-800">45</p>
+                        <p className="text-sm font-medium text-gray-500">Administradores</p>
+                        <p className="text-2xl font-bold text-gray-800">
+                          {loadingKpis ? '—' : kpis.admins}
+                        </p>
                       </div>
                     </div>
                   </div>
 
-                  {/* Gráfico Simple Distribución Triage */}
+                  {/* Panel de Estado de Infraestructura para Administrador */}
                   <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                    <h3 className="text-lg font-semibold text-gray-800 mb-4">Distribución por Prioridad (Triage)</h3>
+                    <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                      <Activity className="w-5 h-5 text-blue-600" />
+                      Estado de Infraestructura
+                    </h3>
                     <div className="space-y-4">
-                      <div>
-                        <div className="flex justify-between text-sm mb-1">
-                          <span className="text-red-600 font-medium">Emergencia (Rojo)</span>
-                          <span className="text-gray-600">12%</span>
+                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                        <div className="flex items-center gap-3">
+                          <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></div>
+                          <span className="text-sm font-medium text-gray-700">Base de Datos (MariaDB)</span>
                         </div>
-                        <div className="w-full bg-gray-100 rounded-full h-2.5">
-                          <div className="bg-red-500 h-2.5 rounded-full" style={{ width: '12%' }}></div>
-                        </div>
+                        <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full uppercase">Online</span>
                       </div>
-                      <div>
-                        <div className="flex justify-between text-sm mb-1">
-                          <span className="text-orange-600 font-medium">Urgencia Mayor (Naranja)</span>
-                          <span className="text-gray-600">28%</span>
+                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                        <div className="flex items-center gap-3">
+                          <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></div>
+                          <span className="text-sm font-medium text-gray-700">Servidor de Aplicación (API)</span>
                         </div>
-                        <div className="w-full bg-gray-100 rounded-full h-2.5">
-                          <div className="bg-orange-500 h-2.5 rounded-full" style={{ width: '28%' }}></div>
-                        </div>
+                        <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full uppercase">Online</span>
                       </div>
-                      <div>
-                        <div className="flex justify-between text-sm mb-1">
-                          <span className="text-yellow-600 font-medium">Urgencia Menor (Amarillo)</span>
-                          <span className="text-gray-600">35%</span>
+                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                        <div className="flex items-center gap-3">
+                          <div className="w-3 h-3 rounded-full bg-amber-500"></div>
+                          <span className="text-sm font-medium text-gray-700">Servicio de Correo (Zimbra)</span>
                         </div>
-                        <div className="w-full bg-gray-100 rounded-full h-2.5">
-                          <div className="bg-yellow-500 h-2.5 rounded-full" style={{ width: '35%' }}></div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-sm mb-1">
-                          <span className="text-green-600 font-medium">No Urgente (Verde)</span>
-                          <span className="text-gray-600">15%</span>
-                        </div>
-                        <div className="w-full bg-gray-100 rounded-full h-2.5">
-                          <div className="bg-green-500 h-2.5 rounded-full" style={{ width: '15%' }}></div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-sm mb-1">
-                          <span className="text-blue-600 font-medium">Consulta (Azul)</span>
-                          <span className="text-gray-600">10%</span>
-                        </div>
-                        <div className="w-full bg-gray-100 rounded-full h-2.5">
-                          <div className="bg-blue-500 h-2.5 rounded-full" style={{ width: '10%' }}></div>
-                        </div>
+                        <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded-full uppercase">Verificando</span>
                       </div>
                     </div>
                   </div>
@@ -211,64 +200,7 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {/* Dashboard Soporte TI (ID 6) */}
-              {usuario.rol_id === 6 && (
-                <div className="space-y-6">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-lg bg-indigo-100 flex items-center justify-center">
-                        <ShieldAlert className="w-6 h-6 text-indigo-600" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-500">Estado del Sistema</p>
-                        <p className="text-2xl font-bold text-emerald-600">Operativo</p>
-                      </div>
-                    </div>
-                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center">
-                        <Users className="w-6 h-6 text-blue-600" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-500">Usuarios Totales</p>
-                        <p className="text-2xl font-bold text-gray-800">142</p>
-                      </div>
-                    </div>
-                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-lg bg-amber-100 flex items-center justify-center">
-                        <Activity className="w-6 h-6 text-amber-600" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-500">Logs de Hoy</p>
-                        <p className="text-2xl font-bold text-gray-800">1.2k</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <Link
-                      to="/admin/usuarios"
-                      className="p-4 bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-3 text-blue-600 font-semibold"
-                    >
-                      <Users className="w-5 h-5" />
-                      Gestión de Usuarios
-                    </Link>
-                    <Link
-                      to="/admin/videos"
-                      className="p-4 bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-3 text-indigo-600 font-semibold"
-                    >
-                      <FileText className="w-5 h-5" />
-                      Gestión de Videos
-                    </Link>
-                    <Link
-                      to="/admin/soporte"
-                      className="p-4 bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-3 text-emerald-600 font-semibold"
-                    >
-                      <Wrench className="w-5 h-5" />
-                      Monitoreo Logs
-                    </Link>
-                  </div>
-                </div>
-              )}
+              {/* Dashboard Soporte TI (ID 6) - Redirección forzada eliminada por middleware en useEffect */}
 
               {/* KPIs Clínicos (Médicos y Otros) */}
               {(usuario.rol_id === 1 || usuario.rol_id === 2) && (

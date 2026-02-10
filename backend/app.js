@@ -79,6 +79,7 @@ const admisionesRoutes = require('./routes/admisiones'); // Nuevo import para la
 const catMotivoConsultaSintomasRoutes = require('./routes/catMotivoConsultaSintomasRoutes'); // Nueva ruta
 const reportesRoutes = require('./routes/reportes'); // Nuevo import para las rutas de reportes
 const referenciaRoutes = require('./routes/referencia'); // Nuevo import para las rutas de referencia (053)
+const statsRoutes = require('./routes/statsRoutes'); // Importar rutas de estadísticas
 
 app.use('/usuarios', usuariosRouter);
 console.log('Rutas de usuarios registradas en /usuarios'); // Log para depuración
@@ -106,6 +107,7 @@ app.use('/api/diagnosticos', require('./routes/diagnosticos')); // Rutas de diag
 app.use('/api/reasignacion', require('./routes/reasignacion')); // Rutas de reasignación de pacientes
 app.use('/api/firma-electronica', require('./routes/firmaElectronica')); // Rutas de firma electrónica
 app.use('/api/bi', require('./routes/biRoutes')); // Rutas de Dashboard BI
+app.use('/api/estadistica', statsRoutes); // Rutas de estadísticas y KPIs
 app.use('/api/verificar', require('./routes/verificarTabla')); // Ruta temporal para verificar estructura de tablas
 app.use('/api/soporte', require('./routes/soporte')); // Rutas para soporte técnico (logs correos, intentos, etc)
 app.use('/api/usuarios-admin', require('./routes/usuariosAdmin')); // Rutas de gestión de usuarios para TI

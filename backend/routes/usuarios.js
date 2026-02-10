@@ -40,7 +40,8 @@ router.post('/restablecer/:token', authController.restablecer);
 // Ruta para desbloqueo híbrido (Zimbra OTP o Firma Digital)
 router.post('/desbloquear', upload.single('p12'), authController.desbloquearCuenta);
 
-// Ruta para cambiar contraseña (autenticado)
+// Rutas para cambio de contraseña con OTP (Paso 3)
+router.post('/solicitar-otp-cambio-clave', validarToken, authController.solicitarOtpCambioContrasena);
 router.post('/cambiar-contrasena', validarToken, authController.cambiarContrasena);
 
 // Nuevas rutas para aprobación de usuarios
@@ -114,8 +115,6 @@ router.put('/pacientes/:id', validarToken, usuariosController.actualizarPaciente
 // Ruta para eliminar un paciente por ID
 router.delete('/pacientes/:id', usuariosController.eliminarPaciente);
 
-// Ruta para cambiar contraseña de usuario logueado
-router.post('/cambiar-contrasena', validarToken, authController.cambiarContrasena); // Nueva ruta
 
 // Verificar si un usuario ya existe por cédula (público para registro proactivo)
 router.get('/verificar/:cedula', authController.verificarUsuario);

@@ -13,7 +13,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
 
     if (allowedRoles && !allowedRoles.includes(userRole)) {
       // Si el rol no está permitido, redirigir a su home correspondiente
-      if (userRole === 5) { // Administrador
+      if (userRole === 5 || userRole === 6) { // Administrador o Soporte TI
         return <Navigate to="/admin/usuarios" replace />;
       } else { // Médicos y otros roles operativos
         return <Navigate to="/dashboard" replace />;

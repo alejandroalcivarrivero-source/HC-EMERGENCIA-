@@ -10,5 +10,6 @@ router.use(validarAdmin);
 router.get('/triaje-stats', biController.getTriajeStats);
 router.get('/waiting-times', biController.getWaitingTimes);
 router.get('/top-diagnosticos', biController.getTopDiagnosticos);
+router.get('/global-report', biController.getGlobalReportData);
 
 module.exports = router;

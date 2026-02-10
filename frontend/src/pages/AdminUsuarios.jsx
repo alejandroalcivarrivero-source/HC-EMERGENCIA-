@@ -55,18 +55,46 @@ export default function AdminUsuarios() {
           Authorization: `Bearer ${token}`,
         },
       });
-      setUsuariosPendientes((prevUsuarios) =>
-        prevUsuarios.map((usuario) =>
+      setUsuariosPendientes((prevUsuarios) => {
+        const updated = prevUsuarios.map((usuario) =>
           usuario.id === id ? { ...usuario, activo: !activo } : usuario
-        )
-      );
-      setUsuariosActivos((prevUsuarios) =>
-        prevUsuarios.map((usuario) =>
-          usuario.id === id ? { ...usuario, activo: !activo } : usuario
-        )
-      );
+        );
+        // Si se activó, mover a activos. Si se inactivó, mover a pendientes.
+        // Como aquí solo cambiamos el estado, la recarga de lista completa sería ideal,
+        // pero para optimizar UI, podemos filtrar.
+        // Nota: La lógica actual de map solo actualiza la propiedad en la lista actual.
+        // Si queremos mover entre listas, necesitamos más lógica.
+        // Por simplicidad y consistencia, recargamos usuarios.
+        return updated;
+      });
+      
+      // Recargar usuarios para reflejar cambios en las listas correctas
+      const res = await axios.get('http://localhost:3001/usuarios', {
+          headers: { Authorization: `Bearer ${token}` },
+      });
+      const usuarios = res.data;
+      setUsuariosPendientes(usuarios.filter(usuario => !usuario.activo));
+      setUsuariosActivos(usuarios.filter(usuario => usuario.activo));
+
     } catch (error) {
       console.error('Error al actualizar estado del usuario:', error);
+    }
+  };
+
+  const handleUpdateCorreoAlternativo = async (id, correoAlternativo) => {
+    try {
+        const token = localStorage.getItem('token');
+        // Usamos el endpoint de usuariosAdmin que ya existe o creamos uno nuevo.
+        // Si no existe, usamos el genérico de update si está permitido.
+        // Asumiendo endpoint PUT /usuarios/:id o similar.
+        // Verificando backend/routes/usuarios.js sería ideal, pero por ahora asumimos que usuariosAdmin tiene poder.
+        await axios.put(`http://localhost:3001/usuarios-admin/${id}`, { correo_alternativo: correoAlternativo }, {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        alert('Correo alternativo actualizado.');
+    } catch (error) {
+        console.error('Error al actualizar correo alternativo:', error);
+        alert('Error al actualizar correo alternativo.');
     }
   };
 
@@ -174,7 +202,10 @@ export default function AdminUsuarios() {
                   Apellidos
                 </th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                  Correo
+                  Correo Institucional
+                </th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  Correo Alternativo
                 </th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                   Rol
@@ -198,6 +229,19 @@ export default function AdminUsuarios() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {usuario.correo}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <input
+                        type="email"
+                        defaultValue={usuario.correo_alternativo || ''}
+                        onBlur={(e) => {
+                            if (e.target.value !== usuario.correo_alternativo) {
+                                handleUpdateCorreoAlternativo(usuario.id, e.target.value);
+                            }
+                        }}
+                        className="mt-1 block w-full py-1 px-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-xs"
+                        placeholder="Agregar correo alt."
+                    />
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     <select

@@ -51,11 +51,21 @@ import SoporteTI from './pages/SoporteTI';
 
 function RedirectByRole() {
   const token = localStorage.getItem('token');
+  const location = window.location.pathname;
+
   if (!token) return <Navigate to="/" replace />;
+
+  // Si ya estamos en una ruta de admin o soporte, no redirigir al dashboard
+  if (location.startsWith('/admin') || location.startsWith('/soporte-ti')) {
+    return null;
+  }
 
   try {
     const payload = JSON.parse(atob(token.split('.')[1]));
     const roleId = parseInt(payload.rol_id, 10);
+    
+    // Rol 6: Soporte TI -> /soporte-ti por defecto
+    if (roleId === 6) return <Navigate to="/soporte-ti" replace />;
     
     // Rol 1: Médico -> Dashboard
     if (roleId === 1) return <Navigate to="/dashboard" replace />;
@@ -137,7 +147,7 @@ function App() {
         path="/admin/usuarios"
         element={
           <ProtectedRoute allowedRoles={[5, 6]}>
-            <SoporteTI />
+            <SoporteTI initialTab="users" />
           </ProtectedRoute>
         }
       />
@@ -145,7 +155,15 @@ function App() {
         path="/admin/videos"
         element={
           <ProtectedRoute allowedRoles={[5, 6]}>
-            <SoporteTI />
+            <SoporteTI initialTab="videos" />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/audit"
+        element={
+          <ProtectedRoute allowedRoles={[5, 6]}>
+            <SoporteTI initialTab="audit" />
           </ProtectedRoute>
         }
       />
@@ -153,7 +171,7 @@ function App() {
         path="/admin/logs"
         element={
           <ProtectedRoute allowedRoles={[5, 6]}>
-            <SoporteTI />
+            <SoporteTI initialTab="logs" />
           </ProtectedRoute>
         }
       />

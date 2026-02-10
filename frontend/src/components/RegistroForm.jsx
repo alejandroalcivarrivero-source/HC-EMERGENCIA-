@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { validarCedulaEcuador } from '../utils/validaciones';
+import { validarCedulaEcuador, validarPasswordEstricto } from '../utils/validaciones';
 import NotificationModal from './NotificationModal';
 
 export default function RegistroForm() {
@@ -12,6 +12,7 @@ export default function RegistroForm() {
     fecha_nacimiento: '',
     sexo: '',
     correo: '',
+    correo_alternativo: '',
     telefono: '',
     contrasena: '',
     confirmar_contrasena: '',
@@ -288,6 +289,10 @@ export default function RegistroForm() {
       showNotification('Usuario Requerido', 'El nombre de usuario (Zimbra) es requerido.', 'warning');
       return false;
     }
+    if (form.correo_alternativo && !form.correo_alternativo.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+      showNotification('Correo Inválido', 'El formato del correo alternativo no es válido.', 'warning');
+      return false;
+    }
     if (!form.rol_id) {
       showNotification('Rol Requerido', 'Debe seleccionar un rol institucional.', 'warning');
       return false;
@@ -312,11 +317,7 @@ export default function RegistroForm() {
   };
 
   const validatePassword = (password) => {
-    if (password.length < 8 || password.length > 16) return 'La contraseña debe tener entre 8 y 16 caracteres.';
-    if (!/[A-Z]/.test(password)) return 'La contraseña debe contener al menos una letra mayúscula.';
-    if (!/[a-z]/.test(password)) return 'La contraseña debe contener al menos una letra minúscula.';
-    if (!/[0-9]/.test(password)) return 'La contraseña debe contener al menos un número.';
-    return null;
+    return validarPasswordEstricto(password);
   };
 
   const handleSubmit = async (e) => {
@@ -648,6 +649,27 @@ export default function RegistroForm() {
                     </div>
                     <p className="text-[10px] text-slate-400 font-medium mt-1">Ingrese únicamente el usuario sin el dominio.</p>
                   </div>
+
+                  <div className="space-y-1">
+                    <label className="text-sm font-bold text-slate-700">Correo Alternativo (Respaldo)</label>
+                    <div className="relative group">
+                      <input
+                        type="email"
+                        name="correo_alternativo"
+                        value={form.correo_alternativo}
+                        onChange={handleChange}
+                        placeholder="ejemplo@gmail.com"
+                        className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all pl-10"
+                      />
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
+                          <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
+                        </svg>
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-medium mt-1">Opcional. Se usará para recuperación y envío de OTP alternativo.</p>
+                  </div>
                 </div>
               )}
 
@@ -669,14 +691,21 @@ export default function RegistroForm() {
                         {showPassword ? 'Ocultar' : 'Ver'}
                       </button>
                     </div>
+                    {form.contrasena && validatePassword(form.contrasena) && (
+                      <p className="text-red-500 text-xs mt-1">{validatePassword(form.contrasena)}</p>
+                    )}
                   </div>
 
                   <div className="space-y-1">
                     <label className="text-sm font-bold text-slate-700">Confirmar Contraseña</label>
                     <div className="relative">
-                      <input 
+                      <input
                         type={showConfirmPassword ? 'text' : 'password'} name="confirmar_contrasena" value={form.confirmar_contrasena} onChange={handleChange}
-                        className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none pr-12"
+                        className={`w-full p-3 border rounded-xl focus:ring-2 outline-none pr-12 ${
+                          form.confirmar_contrasena && form.contrasena !== form.confirmar_contrasena
+                            ? 'border-red-500 ring-1 ring-red-500 focus:ring-red-500'
+                            : 'border-slate-200 focus:ring-blue-500'
+                        }`}
                         placeholder="••••••••"
                       />
                       <button
@@ -686,14 +715,21 @@ export default function RegistroForm() {
                         {showConfirmPassword ? 'Ocultar' : 'Ver'}
                       </button>
                     </div>
+                    {form.confirmar_contrasena && form.contrasena !== form.confirmar_contrasena && (
+                      <p className="text-red-500 text-xs mt-1">Las contraseñas no coinciden.</p>
+                    )}
                   </div>
 
                   <div className="p-4 bg-amber-50 rounded-xl border border-amber-100">
                     <h4 className="text-xs font-bold text-amber-800 uppercase mb-2">Requisitos de Seguridad</h4>
-                    <ul className="text-xs text-amber-700 space-y-1 list-disc ml-4">
-                      <li>Entre 8 y 16 caracteres</li>
-                      <li>Al menos una mayúscula y una minúscula</li>
-                      <li>Al menos un número</li>
+                    <ul className="text-xs text-amber-700 space-y-1 list-disc ml-4 font-medium">
+                      <li className={form.contrasena.length >= 8 ? 'text-green-600' : ''}>Mínimo 8 caracteres</li>
+                      <li className={/[A-Z]/.test(form.contrasena) ? 'text-green-600' : ''}>Al menos una Mayúscula</li>
+                      <li className={/[0-9]/.test(form.contrasena) ? 'text-green-600' : ''}>Al menos un Número</li>
+                      <li className={/[!@#$%^&*(),.?":{}|<>]/.test(form.contrasena) ? 'text-green-600' : ''}>Al menos un Carácter Especial</li>
+                      {form.contrasena && form.confirmar_contrasena && form.contrasena === form.confirmar_contrasena && (
+                        <li className="text-green-600 font-bold">✓ Las contraseñas coinciden</li>
+                      )}
                     </ul>
                   </div>
                 </div>

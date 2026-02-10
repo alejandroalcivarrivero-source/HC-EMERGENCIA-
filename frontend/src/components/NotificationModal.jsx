@@ -14,17 +14,20 @@ const NotificationModal = ({
   useEffect(() => {
     if (isOpen) {
       closeButtonRef.current?.focus();
-      
-      const handleKeyDown = (e) => {
-        if (e.key === 'Escape' || e.key === 'Enter') {
-          onClose();
+
+      const handleKeyDown = (event) => {
+        if (event.key === 'Escape' || event.key === 'Esc') {
+          event.stopPropagation();
         }
       };
 
-      window.addEventListener('keydown', handleKeyDown);
-      return () => window.removeEventListener('keydown', handleKeyDown);
+      document.addEventListener('keydown', handleKeyDown, true);
+
+      return () => {
+        document.removeEventListener('keydown', handleKeyDown, true);
+      };
     }
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -86,13 +89,18 @@ const NotificationModal = ({
   const styles = severityStyles[severity] || severityStyles.info;
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 backdrop-blur-sm bg-black/40 animate-fade-in">
-      <div 
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 backdrop-blur-sm bg-black/40 animate-fade-in" onClick={(e) => e.stopPropagation()}>
+      {/* Overlay barrier - clicking it won't close if we don't pass onClick to it or handle it */}
+      <div
         className={`relative w-full max-w-md p-8 ${styles.bg} border-t-8 ${styles.border} rounded-2xl shadow-2xl transform transition-all animate-scale-in`}
         role="dialog"
         aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex flex-col items-center text-center">
+        <div
+          className="flex flex-col items-center text-center"
+          onClick={(e) => e.stopPropagation()}
+        >
           <div className="mb-4">
             {styles.icon}
           </div>
@@ -137,14 +145,16 @@ const NotificationModal = ({
               {action.secondaryLabel}
             </button>
           )}
-          <button
-            ref={closeButtonRef}
-            type="button"
-            onClick={onClose}
-            className={`w-full px-6 py-3 ${action ? 'bg-transparent text-slate-500 hover:text-slate-700' : 'text-white ' + styles.button} text-lg font-bold rounded-xl transition-all`}
-          >
-            {action ? 'Cerrar' : 'Aceptar'}
-          </button>
+          {!action && (
+            <button
+              ref={closeButtonRef}
+              type="button"
+              onClick={onClose}
+              className={`w-full px-6 py-3 text-white text-lg font-bold rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all ${styles.button}`}
+            >
+              Aceptar
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from '../config/axios';
 import { useNotification } from '../contexts/NotificationContext';
+import Swal from 'sweetalert2';
 
 export default function LoginForm() {
   const [cedula, setCedula] = useState('');
@@ -11,7 +12,8 @@ export default function LoginForm() {
   const { showError } = useNotification();
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+   e.preventDefault();
+    e.stopPropagation(); // Stop propagation to prevent any parent handlers
     setError(null);
     try {
       const res = await axios.post('/usuarios/login', {
@@ -28,13 +30,14 @@ export default function LoginForm() {
         localStorage.setItem('userId', data.user.id);
       }
       
-      if (data.user && data.user.rol_id === 5) {
+      if (data.user && (data.user.rol_id === 5 || data.user.rol_id === 6)) {
         navigate('/admin/usuarios');
       } else {
         navigate('/dashboard');
       }
     } catch (err) {
-      const status = err.response?.status;
+      const responseData = err.response?.data;
+      const responseMessage = responseData?.message;
       let errorMessage = 'Error al iniciar sesión. Por favor, intente de nuevo.';
       let errorTitle = 'Error de Autenticación';
 
@@ -42,10 +45,53 @@ export default function LoginForm() {
         errorTitle = 'Servicio no disponible';
         errorMessage = 'El servicio de autenticación no está disponible temporalmente.';
       } else if (status === 401) {
-        errorMessage = 'Cédula o contraseña incorrectas.';
-      } else if (err.message === 'Network Error') {
-        errorTitle = 'Error de Red';
-        errorMessage = 'No se pudo conectar con el servidor. Verifique su conexión.';
+        // Verificar intentos fallidos
+        if (responseData && responseData.intentos_fallidos !== undefined) {
+             const intentos = responseData.intentos_fallidos;
+             const maximos = responseData.max_intentos || 10;
+             const restantes = responseData.intentosRestantes !== undefined ? responseData.intentosRestantes : (maximos - intentos);
+             
+             // Si queda 1 intento o menos, es el último
+             const isLastAttempt = restantes <= 1;
+             
+             // Mostrar modal SweetAlert2
+             Swal.fire({
+               title: 'Contraseña Incorrecta',
+               text: 'Intento ' + responseData.intentos + ' de 10. Al llegar a 10 se bloqueará.',
+               icon: 'warning',
+               confirmButtonText: 'Entendido',
+               confirmButtonColor: isLastAttempt ? '#d33' : '#3085d6',
+               allowOutsideClick: false,
+               allowEscapeKey: false,
+               allowEnterKey: false,
+               stopKeydownPropagation: true
+            });
+             return; // Detener el flujo aquí ya que Swal maneja la UI
+        } else {
+             errorMessage = 'Cédula o contraseña no coinciden';
+        }
+      } else if (status === 403) {
+         // Cuenta bloqueada o pendiente
+         Swal.fire({
+            title: 'Acceso Denegado',
+            text: responseMessage || 'Su cuenta está bloqueada o pendiente de aprobación.',
+            icon: 'error',
+            confirmButtonText: 'Cerrar',
+            allowOutsideClick: false,
+            allowEscapeKey: false,
+            allowEnterKey: false,
+            stopKeydownPropagation: true
+         });
+         return;
+      } else if (status === 429) { // Too Many Requests
+        errorMessage = 'Su cuenta ha sido bloqueada por demasiados intentos fallidos';
+        errorTitle = 'Cuenta Bloqueada';
+      } else if (status === 500) {
+        errorTitle = 'Error de Servidor';
+        errorMessage = 'No se pudo conectar con el servidor central';
+      } else if (err.message === 'Network Error' || !err.response) {
+        errorTitle = 'Error de Conexión';
+        errorMessage = 'No se pudo conectar con el servidor central';
       }
 
       setError(errorMessage);

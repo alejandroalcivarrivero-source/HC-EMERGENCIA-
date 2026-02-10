@@ -13,5 +13,7 @@ router.get('/logs-correos', soporteController.getLogsCorreos);
 router.get('/intentos-cedula', soporteController.getIntentosCedula);
 router.post('/test-correo', soporteController.testCorreo);
 router.get('/health-check', soporteController.getHealthCheck);
+router.get('/logs-server', soporteController.getServerLogs);
+router.post('/manual-backup', soporteController.triggerBackup);
 
 module.exports = router;

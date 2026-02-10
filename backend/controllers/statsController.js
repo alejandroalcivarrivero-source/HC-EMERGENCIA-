@@ -79,6 +79,105 @@ const getKPIs = async (req, res) => {
     }
 };
 
+const getProduccionDiaria = async (req, res) => {
+    try {
+        const { fechaInicio, fechaFin } = req.query;
+        let start, end;
+
+        if (fechaInicio && fechaFin) {
+            start = new Date(fechaInicio);
+            end = new Date(fechaFin);
+            end.setHours(23, 59, 59, 999);
+        } else {
+            const boundaries = getTodayBoundaries();
+            start = boundaries.startOfDay;
+            end = boundaries.endOfDay;
+        }
+
+        // 1. KPIs Generales (Estado actual)
+        // Se asume que existe una tabla o lógica para determinar el estado actual.
+        // Si usamos 'atenciones_emergencia', el estado podría ser inferido o existir una columna 'estado'.
+        // Si no existe columna estado, simularemos conteo por ahora o usaremos lógica de negocio.
+        // Revisando modelos, AtencionEmergencia es central.
+        // Supongamos que queremos contar cuantos entraron en ese rango.
+        
+        const totalAtenciones = await AtencionEmergencia.count({
+            where: {
+                fecha_atencion: { // Usando fecha_atencion que es más preciso para la atención médica
+                    [Op.gte]: start,
+                    [Op.lte]: end
+                }
+            }
+        });
+
+        // 2. Flujo por Hora (Admissions per hour)
+        const hourlyFlowQuery = `
+            SELECT
+                DATE_FORMAT(createdAt, '%H:00') as hora,
+                COUNT(*) as cantidad
+            FROM admisiones
+            WHERE createdAt BETWEEN :start AND :end
+            GROUP BY DATE_FORMAT(createdAt, '%H:00')
+            ORDER BY hora ASC;
+        `;
+
+        const [hourlyFlow] = await sequelize.query(hourlyFlowQuery, {
+            replacements: { start, end },
+            type: sequelize.QueryTypes.SELECT
+        });
+
+        // 3. Producción por Usuario (Médico/Admins)
+        // Se cuenta atenciones creadas/firmadas por usuario en ese rango
+        const produccionUsuarioQuery = `
+            SELECT
+                u.nombre_completo as usuario,
+                COUNT(ae.id) as total_atenciones
+            FROM atenciones_emergencia ae
+            JOIN usuarios u ON ae.usuarioId = u.id
+            WHERE ae.fecha_atencion BETWEEN :start AND :end
+            GROUP BY u.id, u.nombre_completo
+            ORDER BY total_atenciones DESC;
+        `;
+
+         const [produccionPorUsuario] = await sequelize.query(produccionUsuarioQuery, {
+            replacements: { start, end },
+            type: sequelize.QueryTypes.SELECT
+        });
+
+        // 4. Indicadores de Estado (Simulado/Real dependiendo de estructura)
+        // Si no hay tabla de histórico de estados, tomamos el estado actual de los pacientes admitidos hoy?
+        // O buscamos en tabla 'admisiones' si tiene estado.
+        // Asumamos que queremos saber cuántos están en 'Observación', 'Alta', etc.
+        // Esto suele ser una foto del momento, no necesariamente un histórico por fechas,
+        // pero si filtramos por fecha, serían "Pacientes ingresados en fecha X que terminaron en estado Y"
+        // O "Estado actual de pacientes ingresados en fecha X".
+        
+        // Vamos a intentar contar por 'destino_alta' o similar si existe en AtencionEmergencia,
+        // o si hay una tabla de 'admisiones' con estado.
+        // Revisando modelos, no vi 'estado' explicito en AtencionEmergencia que no sea booleanos o strings.
+        // Vamos a contar por 'destino' si existe, o placeholder.
+        
+        // Revisión rápida de estructura sugerida:
+        // admisiones -> estado (Ingresado, Alta, etc)?
+        
+        res.json({
+            rango: { start, end },
+            kpis: {
+                totalAtenciones
+            },
+            graficos: {
+                flujoPorHora: hourlyFlow,
+                produccionPorUsuario
+            }
+        });
+
+    } catch (error) {
+        console.error("Error en getProduccionDiaria:", error);
+        res.status(500).json({ message: "Error al obtener estadísticas", error: error.message });
+    }
+};
+
 module.exports = {
     getKPIs,
+    getProduccionDiaria
 };

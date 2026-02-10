@@ -1,20 +1,22 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-// import { LayoutDashboard, RefreshCw, FileCheck, FileEdit, Users, Settings, FileText, List, History, BarChart3, FileKey, Wrench } from 'lucide-react';
-
-// Iconos temporales para evitar fallos de lucide-react
-const LayoutDashboard = () => <span>[Dash]</span>;
-const RefreshCw = () => <span>[Ref]</span>;
-const FileCheck = () => <span>[Check]</span>;
-const FileEdit = () => <span>[Edit]</span>;
-const Users = () => <span>[Users]</span>;
-const Settings = () => <span>[Set]</span>;
-const FileText = () => <span>[Doc]</span>;
-const List = () => <span>[List]</span>;
-const History = () => <span>[Hist]</span>;
-const BarChart3 = () => <span>[Stats]</span>;
-const FileKey = () => <span>[Key]</span>;
-const Wrench = () => <span>[Fix]</span>;
+import {
+  LayoutDashboard,
+  RefreshCw,
+  FileCheck,
+  FileEdit,
+  Users,
+  Settings,
+  FileText,
+  List,
+  History,
+  BarChart3,
+  FileKey,
+  Wrench,
+  ShieldCheck,
+  AlertTriangle,
+  Server
+} from 'lucide-react';
 import { useSidebar } from '../contexts/SidebarContext';
 
 /** Solo operativo: uso clínico diario */
@@ -51,10 +53,9 @@ export const quickAccessLinks = {
       { name: 'Reportes Globales', path: '/reportes', icon: BarChart3 },
     ],
     6: [
-      { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
-      { name: 'Panel Soporte TI', path: '/soporte-ti', icon: Wrench },
       { name: 'Gestión de Usuarios', path: '/admin/usuarios', icon: Users },
-      { name: 'Administración de Videos', path: '/admin/videos', icon: FileText },
+      { name: 'Logs de Correo', path: '/admin/logs-correo', icon: FileText },
+      { name: 'Infraestructura', path: '/soporte-ti', icon: Server },
     ],
   };
 
@@ -149,9 +150,37 @@ export default function Header() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path>
             </svg>
           </button>
-          <h1 className="text-lg font-bold cursor-pointer" onClick={() => navigate('/dashboard')}>Sistema de Gestión de Emergencias del Centro de Salud Chone</h1>
+          <h1
+            className="text-lg font-bold cursor-pointer"
+            onClick={() => {
+              const token = localStorage.getItem('token');
+              if (token) {
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                if (payload.rol_id === 6) {
+                  navigate('/soporte-ti');
+                  return;
+                }
+              }
+              navigate('/dashboard');
+            }}
+          >
+            Sistema de Gestión de Emergencias del Centro de Salud Chone
+          </h1>
         </div>
-        <div className="flex-grow flex justify-center items-center cursor-pointer" onClick={() => navigate('/dashboard')}>
+        <div
+          className="flex-grow flex justify-center items-center cursor-pointer"
+          onClick={() => {
+            const token = localStorage.getItem('token');
+            if (token) {
+              const payload = JSON.parse(atob(token.split('.')[1]));
+              if (payload.rol_id === 6) {
+                navigate('/soporte-ti');
+                return;
+              }
+            }
+            navigate('/dashboard');
+          }}
+        >
         </div>
         <div className="relative z-[3000]" ref={dropdownRef}>
           <button
