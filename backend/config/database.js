@@ -8,7 +8,7 @@ const DB_CONFIG = {
     port: process.env.DB_PORT || '3306',
     user: process.env.DB_USER || 'TICS',
     password: process.env.DB_PASSWORD || 'TICS20141',
-    database: process.env.DB_NAME || 'EMERGENCIA',
+    database: process.env.DB_NAME || 'SISA_EC',
     dialect: process.env.DB_DIALECT || 'mariadb',
     connectTimeout: 60000 // Default: 60 segundos
   },
@@ -19,7 +19,7 @@ const DB_CONFIG = {
     port: process.env.DB_PORT_CASA || '3308',
     user: process.env.DB_USER || 'TICS',
     password: process.env.DB_PASSWORD_CASA || 'TICS20141',
-    database: process.env.DB_NAME || 'EMERGENCIA',
+    database: process.env.DB_NAME || 'SISA_EC',
     dialect: process.env.DB_DIALECT || 'mariadb',
     connectTimeout: 60000 // 60 segundos, para el túnel SSH.
   }
@@ -119,59 +119,47 @@ async function connectWithFallback() {
     console.log('🔍 Modo AUTO: Detectando mejor conexión...');
     
     // Intentar primero con TRABAJO con un timeout corto para fallar rápido si no estamos en la red
-    let config = { ...DB_CONFIG.TRABAJO, connectTimeout: 3000 }; // 3 segundos para detección rápida
-    let db = createSequelizeInstance(config);
-    console.log(`🔌 Intentando conectar a BD TRABAJO (Auto-Detect): ${config.host}:${config.port}`);
+    let configTrabajo = { ...DB_CONFIG.TRABAJO, connectTimeout: 3000 }; // 3 segundos para detección rápida
+    let dbTrabajo = createSequelizeInstance(configTrabajo);
+    console.log(`🔌 Intentando conectar a BD TRABAJO (Auto-Detect): ${configTrabajo.host}:${configTrabajo.port}`);
     
     try {
-      await db.authenticate();
-      console.log(`✅ Conexión establecida con BD TRABAJO (${config.host})`);
-      // Actualizar la referencia activa
-      activeSequelize = db;
-      // Copiar métodos y propiedades importantes a la instancia exportada
-      copySequelizeInstance(db, sequelize);
-      return db;
+      await dbTrabajo.authenticate();
+      console.log(`✅ Conexión establecida con BD TRABAJO (${configTrabajo.host})`);
+      activeSequelize = dbTrabajo;
+      copySequelizeInstance(dbTrabajo, sequelize);
+      return dbTrabajo;
     } catch (error) {
-      // Manejo de errores: SequelizeConnectionError ahora se compara con string
-      const isConnectionError = error.name === 'SequelizeConnectionError';
-      
-      if (isConnectionError) {
-        console.warn(`⚠️ Error de conexión a BD TRABAJO (${error.name}): ${error.message}`);
-      } else {
-        console.warn(`⚠️ No se pudo conectar a BD TRABAJO: ${error.message}`);
-      }
+      console.warn(`⚠️ No se pudo conectar a BD TRABAJO: ${error.message}`);
       
       // Asegurarse de cerrar el pool de la conexión fallida antes del fallback
       try {
-        if (db && typeof db.close === 'function') {
-          await db.close();
+        if (dbTrabajo && typeof dbTrabajo.close === 'function') {
+          await dbTrabajo.close();
           console.log('✅ Pool de conexión TRABAJO fallido cerrado antes de fallback.');
         }
       } catch (closeError) {
         console.warn('⚠️ Error al intentar cerrar pool de conexión TRABAJO fallido:', closeError.message);
       }
       
-      console.log(`🔄 Intentando con BD CASA (Radmin)...`);
+      console.log(`🔄 Intentando con BD CASA (Túnel SSH)...`);
       
       // Si falla, intentar con CASA (túnel SSH)
-      config = DB_CONFIG.CASA;
-      db = createSequelizeInstance(config);
-      console.log(`🔄 Intentando con BD CASA (Túnel SSH): ${config.host}:${config.port}`);
+      const configCasa = DB_CONFIG.CASA;
+      const dbCasa = createSequelizeInstance(configCasa);
+      console.log(`🔌 Intentando conectar a BD CASA (Túnel SSH): ${configCasa.host}:${configCasa.port}`);
       console.log(`⚠️ Asegúrate de que el túnel SSH esté activo (ejecuta: npm run tunnel)`);
       
       try {
-        await db.authenticate();
-        console.log(`✅ Conexión establecida con BD CASA vía túnel SSH (${config.host}:${config.port})`);
-        // Actualizar la referencia activa
-        activeSequelize = db;
-        // Copiar métodos y propiedades importantes a la instancia exportada
-        copySequelizeInstance(db, sequelize);
-        return db;
+        await dbCasa.authenticate();
+        console.log(`✅ Conexión establecida con BD CASA vía túnel SSH (${configCasa.host}:${configCasa.port})`);
+        activeSequelize = dbCasa;
+        copySequelizeInstance(dbCasa, sequelize);
+        return dbCasa;
       } catch (error2) {
-        // Usando la comparación de error.name en el error final para mejor trazabilidad
-        console.error(`❌ Error conectando a BD CASA (${error2.name}): ${error2.message}`);
+        console.error(`❌ Error conectando a BD CASA: ${error2.message}`);
         console.error(`💡 Asegúrate de que el túnel SSH esté activo. Ejecuta: npm run tunnel`);
-        throw new Error(`No se pudo conectar a ninguna base de datos. TRABAJO (${error.name}): ${error.message}, CASA (${error2.name}): ${error2.message}`);
+        throw new Error(`No se pudo conectar a ninguna base de datos. TRABAJO: ${error.message}, CASA: ${error2.message}`);
       }
     }
   }
